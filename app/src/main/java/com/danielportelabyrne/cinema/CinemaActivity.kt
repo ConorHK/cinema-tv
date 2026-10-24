@@ -59,6 +59,7 @@ class CinemaActivity : AppCompatActivity() {
             seerr = seerr,
             seerrSheet = SeerrSignInSheet(this, infoSheet) { done -> overCinema { setup.signInToSeerr(done) } },
             infoSheet = infoSheet,
+            railDocked = { settings.railDocked },
             onOpenSettings = { moviesPanel.hide(); setup.openSettings() }
         )
 

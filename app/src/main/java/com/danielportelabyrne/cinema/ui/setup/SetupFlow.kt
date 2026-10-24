@@ -96,7 +96,7 @@ class SetupFlow(
         settingsMode = name != "welcome"; changed = false; afterStep = null
         when (name) {
             "welcome" -> welcome(); "jellyfin" -> jellyfinServer(); "signin" -> jellyfinSignIn(); "seerr" -> seerrStep()
-            "arr" -> arrStep(); "client" -> clientStep(); "region" -> regionStep(); "advanced" -> advancedStep()
+            "arr" -> arrStep(); "client" -> clientStep(); "region" -> regionStep(); "advanced" -> advancedStep(); "appearance" -> appearanceStep()
             else -> overview()
         }
     }
@@ -328,6 +328,14 @@ class SetupFlow(
         p.secondary("Cancel") { overview() }
     }
 
+    private fun appearanceStep() {
+        val p = page("APPEARANCE", "Appearance", "How Cinema looks on this TV.")
+        backTo = ::overview
+        val rail = p.row("Navigation bar", railLabel())
+        rail.button("Switch") { settings.railDocked = !settings.railDocked; rail.detail.text = railLabel() }
+        p.primary("Done", R.drawable.ic_cin_check) { overview() }
+    }
+
     // --- Settings overview ---------------------------------------------------------------------------
 
     private fun overview() {
@@ -351,6 +359,8 @@ class SetupFlow(
 
         p.row("Country", Locale("", settings.region).getDisplayCountry(Locale.ENGLISH)).button("Change") { regionStep() }
 
+        p.row("Appearance", "How Cinema looks on this TV").button("Change") { appearanceStep() }
+
         val following = LetterboxdRepository.followingCount(activity)
         p.row("Letterboxd", if (following == 0) "Not following anyone. Follow people from the Letterboxd page." else "Following $following · manage them from the Letterboxd page")
 
@@ -361,6 +371,8 @@ class SetupFlow(
         p.row("Reset", "Forget every server, sign-in and setting on this TV").button("Reset everything", danger = true) { confirmReset() }
         p.primary("Done", R.drawable.ic_cin_check) { close() }
     }
+
+    private fun railLabel() = if (settings.railDocked) "Docked to the left edge" else "Floating"
 
     private fun confirmReset() {
         infoSheet.show("RESET", "Reset everything?", "This TV forgets Jellyfin, Seerr, Sonarr, Radarr, download-client logins and the country. " +

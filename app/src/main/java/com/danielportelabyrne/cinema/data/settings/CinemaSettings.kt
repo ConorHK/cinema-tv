@@ -23,6 +23,11 @@ class CinemaSettings(context: Context) {
         get() = prefs.getBoolean("setup_done", false)
         set(v) { prefs.edit().putBoolean("setup_done", v).apply() }
 
+    /** The rail sits flush on the left edge, not floating. */
+    var railDocked: Boolean
+        get() = prefs.getBoolean("rail_docked", false)
+        set(v) { prefs.edit().putBoolean("rail_docked", v).apply() }
+
     /** Two-letter country for what is streaming where: the TV's own country until the owner picks another. */
     var region: String
         get() = prefs.getString("region", null) ?: defaultRegion()
