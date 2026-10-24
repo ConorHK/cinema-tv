@@ -89,8 +89,11 @@ class RemoteImages private constructor(context: Context) {
             val c = URL(url).openConnection() as HttpURLConnection
             c.connectTimeout = 8000; c.readTimeout = 12000
             headers.forEach { (k, v) -> c.setRequestProperty(k, v) }
-            try { if (c.responseCode != 200) null else c.inputStream.use { it.readBytes() } } finally { c.disconnect() }
-        } catch (_: Exception) { null }
+            try {
+                val code = c.responseCode
+                if (code != 200) { Perf.mark("image ${url.substringBefore('?')} -> HTTP $code"); null } else c.inputStream.use { it.readBytes() }
+            } finally { c.disconnect() }
+        } catch (e: Exception) { Perf.mark("image ${url.substringBefore('?')} failed: ${e.javaClass.simpleName}"); null }
 
         /**
          * Decodes straight to [maxWidth]: a power-of-two subsample first (cheap), then the decoder's own scaling for the

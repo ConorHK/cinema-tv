@@ -1,10 +1,13 @@
 package com.danielportelabyrne.cinema.data.movies
 
 import android.util.Log
+import com.danielportelabyrne.cinema.data.jellyfin.Reachability
+import com.danielportelabyrne.cinema.ui.Perf
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.concurrent.ConcurrentHashMap
 
 private const val TAG = "Queue"
 
@@ -244,15 +247,35 @@ class QueueClient(private val seerr: SeerrClient, context: android.content.Conte
     }
 }
 
+/**
+ * Per Sonarr or Radarr address. An address read from Seerr's settings can be one only Seerr reaches (its own
+ * localhost, a container name), so the TV skips it for a while rather than every call waiting out the timeout.
+ */
+private val arrReachability = ConcurrentHashMap<String, Reachability>()
+private const val ARR_BACKOFF_MS = 60_000L
+
 /** One call to Sonarr or Radarr with their key. Returns the body (or "{}" for an empty one), or null on any failure. */
-internal fun arrCall(c: SonarrConfig, method: String, path: String, body: String? = null): String? = try {
-    val conn = URL(c.baseUrl + path).openConnection() as HttpURLConnection
-    conn.requestMethod = method; conn.connectTimeout = 6000; conn.readTimeout = 20000
-    conn.setRequestProperty("X-Api-Key", c.apiKey); conn.setRequestProperty("Accept", "application/json")
-    if (body != null) { conn.doOutput = true; conn.setRequestProperty("Content-Type", "application/json") }
-    try {
-        if (body != null) conn.outputStream.use { it.write(body.toByteArray()) }
-        val code = conn.responseCode
-        if (code in 200..299) (conn.inputStream.bufferedReader().use { it.readText() }.ifBlank { "{}" }) else { Log.w(TAG, "$method ${path.substringBefore('?')} -> HTTP $code"); null }
-    } finally { conn.disconnect() }
-} catch (e: Exception) { Log.w(TAG, "$method ${path.substringBefore('?')} failed: ${e.javaClass.simpleName}"); null }
+internal fun arrCall(c: SonarrConfig, method: String, path: String, body: String? = null): String? {
+    val gate = arrReachability.getOrPut(c.baseUrl) { Reachability(ARR_BACKOFF_MS) }
+    if (gate.backingOff) return null
+    var connected = false
+    val at = Perf.now()
+    return try {
+        val conn = URL(c.baseUrl + path).openConnection() as HttpURLConnection
+        conn.requestMethod = method; conn.connectTimeout = 6000; conn.readTimeout = 20000
+        conn.setRequestProperty("X-Api-Key", c.apiKey); conn.setRequestProperty("Accept", "application/json")
+        if (body != null) { conn.doOutput = true; conn.setRequestProperty("Content-Type", "application/json") }
+        try {
+            conn.connect(); connected = true; gate.reached()
+            if (body != null) conn.outputStream.use { it.write(body.toByteArray()) }
+            val code = conn.responseCode
+            Perf.took("arr $method ${path.substringBefore('?')} -> $code", Perf.now() - at)
+            if (code in 200..299) (conn.inputStream.bufferedReader().use { it.readText() }.ifBlank { "{}" }) else { Log.w(TAG, "$method ${path.substringBefore('?')} -> HTTP $code"); null }
+        } finally { conn.disconnect() }
+    } catch (e: Exception) {
+        val unreachable = gate.failed(e, duringConnect = !connected)
+        Log.w(TAG, "$method ${c.baseUrl}${path.substringBefore('?')} failed: ${e.javaClass.simpleName} after ${Perf.now() - at} ms" +
+            if (unreachable) " (unreachable, skipped for ${ARR_BACKOFF_MS / 1000} s)" else "")
+        null
+    }
+}
