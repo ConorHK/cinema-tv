@@ -2825,7 +2825,7 @@ class MoviesPanel(
         primary.setOnClickListener { playbackStarted = true; remember(e.title, streamed = false); JellyfinPlayback.play(activity, jellyfin, ep, "${e.title.name} · S${ep.season} E${ep.episode}", "jf:${ep.id}") }
     }
 
-    /** Returns a redraw of the shown season, for when Sonarr's episode states or downloads arrive later. */
+    /** Returns a restate of the shown season, for when Sonarr's episode states or downloads arrive later. */
     private fun drawSeasons(box: LinearLayout, e: Entry, tmdb: Long?, seasons: List<SeasonState>, owned: List<JellyfinItem>,
                             states: MutableMap<Pair<Int, Int>, EpisodeState>, downloads: List<QueueItem>): () -> Unit {
         box.removeAllViews()
@@ -2862,6 +2862,7 @@ class MoviesPanel(
         var shown = seasons.first()
         var loading = 0
         var railTarget: View? = null
+        var restateShown: () -> Unit = {}
         fun selectedTab(): View? = tabs.entries.firstOrNull { it.value === shown }?.key
 
         fun setInfo(parts: List<Pair<String, Boolean>>) {
@@ -2907,12 +2908,16 @@ class MoviesPanel(
             actionSlot.addView(button, FrameLayout.LayoutParams(-2, -1))
         }
 
+        /** A drawn card; [restate] rebinds it in place from the latest states and downloads. */
+        class Shown(val card: EpisodeCard, val mine: JellyfinItem?, val look: () -> CardLook, val latest: () -> CardLook, val restate: () -> Unit)
+
         /** One episode's card, with its actions. [rebind] redraws it after a request, without reloading the season. */
-        fun episodeCard(s: SeasonState, ep: EpisodeRow, mine: JellyfinItem?, token: Int, today: String): Pair<EpisodeCard, CardLook> {
+        fun episodeCard(s: SeasonState, ep: EpisodeRow, mine: JellyfinItem?, token: Int, today: String): Shown {
             val card = EpisodeCard(activity, ep.number, ep.name, ep.overview ?: mine?.overview)
             val label = "${e.title.name} · S${s.number} E${ep.number}"
-            var look = episodeCardState(mine != null, states[s.number to ep.number], s.availability, ep.airDate, today, tmdb != null,
+            fun latest() = episodeCardState(mine != null, states[s.number to ep.number], s.availability, ep.airDate, today, tmdb != null,
                 EpisodeCards.download(downloads, tmdb, s.number, ep.number))
+            var look = latest()
             fun rebind() {
                 card.bind(look, EpisodeCards.formatDate(ep.airDate)?.uppercase() ?: "TBA")
                 card.tipText = when (look.state) {
@@ -2995,7 +3000,7 @@ class MoviesPanel(
                 // An episode that would be streamed: search for it while the viewer looks at it.
                 if (lit && mine == null && !look.unaired && seerr.isSignedIn) slowPool.execute { seerr.prepareStream(e.title.name, e.title.year, s.number, ep.number) }
             }
-            return card to look
+            return Shown(card, mine, { look }, ::latest) { look = latest(); rebind() }
         }
 
         showSeason = { s ->
@@ -3005,6 +3010,7 @@ class MoviesPanel(
             setInfo(EpisodeCards.seasonInfo(s.episodeCount, 0, 0))
             setAction(s, allInLibrary = false)
             railTarget = null
+            restateShown = {}
             rail.inner.removeAllViews(); rail.inner.addView(note("Loading episodes…"))
             worker.execute {
                 val listing = if (tmdb != null && seerr.isSignedIn) seerr.episodes(tmdb, s.number) else emptyList()
@@ -3018,29 +3024,51 @@ class MoviesPanel(
                     val today = EpisodeCards.today()
                     val cards = rows.sortedBy { it.number }.mapIndexed { i, ep ->
                         val mine = ownedHere.firstOrNull { it.episode == ep.number }
-                        val (card, look) = episodeCard(s, ep, mine, token, today)
-                        rail.inner.addView(card, LinearLayout.LayoutParams(-2, -2).apply { if (i > 0) marginStart = Cinema.px(activity, 40) })
-                        Triple(card, look, mine)
-                    }
-                    val inLibrary = cards.count { it.second.state == CardState.LIBRARY }
-                    setInfo(EpisodeCards.seasonInfo(rows.size, inLibrary, cards.count { it.second.state == CardState.DOWNLOADING }))
-                    setAction(s, allInLibrary = inLibrary >= rows.size)
-
-                    // Focus runs along the rail, Play then Download on each card; Up returns to the season's tab.
-                    val stops = cards.flatMap { it.first.focusStops }
-                    stops.forEachIndexed { i, stop ->
-                        stop.setOnKeyListener { _, code, ev ->
-                            if (ev.action != android.view.KeyEvent.ACTION_DOWN) return@setOnKeyListener false
-                            when (code) {
-                                android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> { stops.getOrNull(i + 1)?.requestFocus(); true }
-                                android.view.KeyEvent.KEYCODE_DPAD_LEFT -> { stops.getOrNull(i - 1)?.requestFocus(); true }
-                                android.view.KeyEvent.KEYCODE_DPAD_UP -> selectedTab()?.requestFocus() == true
-                                else -> false
-                            }
+                        episodeCard(s, ep, mine, token, today).also {
+                            rail.inner.addView(it.card, LinearLayout.LayoutParams(-2, -2).apply { if (i > 0) marginStart = Cinema.px(activity, 40) })
                         }
                     }
-                    railTarget = cards.firstOrNull { (_, _, mine) -> mine != null && !mine.played && mine.resumeMs > 0 }?.first?.firstStop
-                        ?: cards.first().first.firstStop
+                    var actionAllIn = false
+                    fun settle() {
+                        val inLibrary = cards.count { it.look().state == CardState.LIBRARY }
+                        setInfo(EpisodeCards.seasonInfo(rows.size, inLibrary, cards.count { it.look().state == CardState.DOWNLOADING }))
+                        val allIn = inLibrary >= rows.size
+                        // Rebuilding a focused action would drop focus.
+                        if (allIn != actionAllIn) {
+                            actionAllIn = allIn
+                            val held = actionSlot.hasFocus()
+                            if (held) selectedTab()?.requestFocus()
+                            setAction(s, allInLibrary = allIn)
+                            if (held) actionSlot.getChildAt(0)?.takeIf { it.isFocusable && it.isEnabled }?.requestFocus()
+                        }
+
+                        // Focus runs along the rail, Play then Download on each card; Up returns to the season's tab.
+                        val stops = cards.flatMap { it.card.focusStops }
+                        stops.forEachIndexed { i, stop ->
+                            stop.setOnKeyListener { _, code, ev ->
+                                if (ev.action != android.view.KeyEvent.ACTION_DOWN) return@setOnKeyListener false
+                                when (code) {
+                                    android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> { stops.getOrNull(i + 1)?.requestFocus(); true }
+                                    android.view.KeyEvent.KEYCODE_DPAD_LEFT -> { stops.getOrNull(i - 1)?.requestFocus(); true }
+                                    android.view.KeyEvent.KEYCODE_DPAD_UP -> selectedTab()?.requestFocus() == true
+                                    else -> false
+                                }
+                            }
+                        }
+                        railTarget = cards.firstOrNull { it.mine != null && !it.mine.played && it.mine.resumeMs > 0 }?.card?.firstStop
+                            ?: cards.first().card.firstStop
+                    }
+                    settle()
+                    restateShown = {
+                        val held = cards.firstOrNull { it.card.hasFocus() }
+                        val focused = held?.card?.findFocus()
+                        // A stop about to go unfocusable would hand focus to the page's first view; park it on the tab.
+                        val park = held != null && focused != null && !held.card.keepsStop(focused, held.latest())
+                        if (park) selectedTab()?.requestFocus()
+                        cards.forEach { it.restate() }
+                        settle()
+                        if (park) held?.card?.firstStop?.requestFocus()
+                    }
                 }
             }
         }
@@ -3074,8 +3102,7 @@ class MoviesPanel(
             tabRow.addView(tab, LinearLayout.LayoutParams(-2, Cinema.px(activity, 62)).apply { if (i > 0) marginStart = Cinema.px(activity, 10) })
         }
         showSeason(seasons.first())
-        // Rebuilding under a focused card or action would drop focus; the next season switch picks the states up.
-        return { if (!rail.inner.hasFocus() && !actionSlot.hasFocus()) showSeason(shown) }
+        return { restateShown() }
     }
 
     // --- Category tiles ------------------------------------------------------------------------

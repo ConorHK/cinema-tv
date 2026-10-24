@@ -141,10 +141,20 @@ class EpisodeCard(context: Context, val number: Int, name: String, overview: Str
     /** Where Down from the season bar lands. */
     val firstStop: View get() = focusStops.firstOrNull() ?: this
 
+    private fun stopsAtCard(look: CardLook) = look.unaired && !look.downloadFocusable && !look.playShown
+
+    /** Whether [view] is still a focus stop once [look] is bound. */
+    fun keepsStop(view: View, look: CardLook): Boolean = when (view) {
+        this -> stopsAtCard(look)
+        play -> !stopsAtCard(look) && look.playShown
+        download -> !stopsAtCard(look) && look.downloadShown && look.downloadFocusable
+        else -> false
+    }
+
     /** Shows [look]: the badge, the discs, and for an unaired episode the greyed still and [airsLabel]. */
     fun bind(look: CardLook, airsLabel: String?) {
         unaired = look.unaired
-        cardStop = unaired && !look.downloadFocusable && !look.playShown
+        cardStop = stopsAtCard(look)
         isFocusable = cardStop; isClickable = cardStop
         badge.visibility = if (look.badge != null) VISIBLE else GONE
         badgeText.text = look.badge.orEmpty()
