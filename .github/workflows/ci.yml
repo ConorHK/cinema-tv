@@ -14,9 +14,12 @@ jobs:
         with:
           distribution: temurin
           java-version: 17
-      - uses: android-actions/setup-android@v3
+      # GitHub's Ubuntu runners come with the Android SDK; use its newest sdkmanager to add platform 36.
       - name: Install Android platform 36
-        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+        run: |
+          SDKMANAGER=$(ls -d "$ANDROID_HOME"/cmdline-tools/*/bin/sdkmanager | sort -V | tail -1)
+          yes | "$SDKMANAGER" --licenses > /dev/null || true
+          "$SDKMANAGER" "platforms;android-36" "build-tools;36.0.0"
       - uses: gradle/actions/setup-gradle@v4
       - name: Unit tests and debug build
         run: ./gradlew testDebugUnitTest assembleDebug --console=plain
