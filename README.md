@@ -90,6 +90,24 @@ Then build:
 
 Without `keystore.properties` the release APK is unsigned and won't install. **Back up the key**: an installed copy can only be updated by an APK signed with the same key.
 
+### Building with Nix
+
+```bash
+nix build
+```
+
+This gives `result/cinema-tv-unsigned.apk`. Sign it before installing:
+
+```bash
+apksigner sign --ks release.jks --out cinema.apk result/cinema-tv-unsigned.apk
+```
+
+After changing dependencies, refresh `nix/deps.json`:
+
+```bash
+$(nix build --no-link --print-out-paths .#cinema-tv.mitmCache.updateScript)
+```
+
 ## Tests
 
 ```bash
