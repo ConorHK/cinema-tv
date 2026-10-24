@@ -3,6 +3,7 @@ package com.danielportelabyrne.cinema.data.jellyfin
 import android.content.Context
 import android.os.Build
 import android.util.Log
+import com.danielportelabyrne.cinema.ui.Perf
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
@@ -278,6 +279,7 @@ class JellyfinClient(context: Context) {
 
     private fun requestOnce(method: String, url: String, authed: Boolean, json: String?): Outcome {
         var connected = false
+        val at = Perf.now()
         return try {
             val connection = URL(url).openConnection() as HttpURLConnection
             connection.requestMethod = method
@@ -295,11 +297,11 @@ class JellyfinClient(context: Context) {
                     code == 401 && authed -> { Log.w(TAG, "Token rejected; signing out"); disconnect(); null }
                     code !in 200..299 -> { Log.w(TAG, "$method ${url.substringBefore('?')} -> HTTP $code"); null }
                     else -> connection.inputStream.bufferedReader().use { it.readText() }
-                })
+                }).also { Perf.took("jellyfin $method ${url.substringBefore('?').removePrefix(server)} -> $code", Perf.now() - at) }
             } finally { connection.disconnect() }
         } catch (e: Exception) {
             val unreachable = reachability.failed(e, duringConnect = !connected)
-            Log.w(TAG, "$method ${url.substringBefore('?')} failed: ${e.javaClass.simpleName}" + if (unreachable) " (unreachable)" else "")
+            Log.w(TAG, "$method ${url.substringBefore('?')} failed: ${e.javaClass.simpleName} after ${Perf.now() - at} ms" + if (unreachable) " (unreachable)" else "")
             Outcome(null, unreachable)
         }
     }

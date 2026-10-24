@@ -14,6 +14,7 @@ import com.danielportelabyrne.cinema.data.movies.Catalog
 import com.danielportelabyrne.cinema.data.movies.SeerrClient
 import com.danielportelabyrne.cinema.data.settings.CinemaSettings
 import com.danielportelabyrne.cinema.ui.MoviesPanel
+import com.danielportelabyrne.cinema.ui.Perf
 import com.danielportelabyrne.cinema.ui.room.InfoSheet
 import com.danielportelabyrne.cinema.ui.room.JellyfinConnectSheet
 import com.danielportelabyrne.cinema.ui.room.SeerrSignInSheet
@@ -31,6 +32,7 @@ class CinemaActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        Perf.init(this)
         setContentView(R.layout.activity_cinema)
         overlay = findViewById(R.id.moviesOverlay)
         infoSheet = InfoSheet(findViewById(R.id.infoSheet))
