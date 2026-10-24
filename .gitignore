@@ -44,3 +44,4 @@ keystore.properties
 # Nix
 result
 result-*
+*.idsig
