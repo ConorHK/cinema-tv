@@ -1,0 +1,42 @@
+# Build results
+build/
+.gradle/
+*.apk
+*.aab
+*.ap_
+
+# IDE
+.idea/
+*.iml
+*.iws
+*.ipr
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Dependencies
+node_modules/
+
+# Gradle
+.gradle/
+gradle-app.setting
+!gradle-wrapper.jar
+.gradletasknamecache
+
+# Local configuration
+local.properties
+
+# Logs
+*.log
+
+# Personal Claude Code settings
+.claude/settings.local.json
+
+# Release signing (never committed)
+keystore.properties
+*.jks
+*.keystore

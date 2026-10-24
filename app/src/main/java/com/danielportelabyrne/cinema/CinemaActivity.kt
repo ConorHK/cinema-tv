@@ -1,0 +1,166 @@
+package com.danielportelabyrne.cinema
+
+import android.os.Bundle
+import android.view.FocusFinder
+import android.view.KeyEvent
+import android.view.View
+import android.view.ViewGroup
+import android.widget.EditText
+import android.widget.ScrollView
+import androidx.activity.OnBackPressedCallback
+import androidx.appcompat.app.AppCompatActivity
+import com.danielportelabyrne.cinema.data.jellyfin.JellyfinClient
+import com.danielportelabyrne.cinema.data.movies.Catalog
+import com.danielportelabyrne.cinema.data.movies.SeerrClient
+import com.danielportelabyrne.cinema.data.settings.CinemaSettings
+import com.danielportelabyrne.cinema.ui.MoviesPanel
+import com.danielportelabyrne.cinema.ui.room.InfoSheet
+import com.danielportelabyrne.cinema.ui.room.JellyfinConnectSheet
+import com.danielportelabyrne.cinema.ui.room.SeerrSignInSheet
+import com.danielportelabyrne.cinema.ui.setup.SetupFlow
+
+/**
+ * The whole app: Cinema full screen, with first-run setup before it and Settings over it. Back walks back through
+ * Cinema's pages and leaves the app from its Home page.
+ */
+class CinemaActivity : AppCompatActivity() {
+    private lateinit var infoSheet: InfoSheet
+    private lateinit var moviesPanel: MoviesPanel
+    private lateinit var overlay: ViewGroup
+    private lateinit var setup: SetupFlow
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_cinema)
+        overlay = findViewById(R.id.moviesOverlay)
+        infoSheet = InfoSheet(findViewById(R.id.infoSheet))
+        val settings = CinemaSettings(this)
+        Catalog.country = settings.region
+        val jellyfin = JellyfinClient(this)
+        val seerr = SeerrClient(this)
+        setup = SetupFlow(this, findViewById(R.id.setupHost), infoSheet, jellyfin, seerr, settings) { changed ->
+            if (changed) { moviesPanel.reload(); if (moviesPanel.isVisible) moviesPanel.hide() }
+            if (!moviesPanel.isVisible) moviesPanel.show()
+            else returnFocus?.takeIf { it.isAttachedToWindow }?.requestFocus()
+            returnFocus = null
+        }
+        moviesPanel = MoviesPanel(
+            activity = this,
+            overlay = overlay,
+            body = findViewById(R.id.moviesBody),
+            top = findViewById(R.id.moviesTop),
+            page = findViewById(R.id.moviesPage),
+            content = findViewById(R.id.moviesContent),
+            detail = findViewById(R.id.movieDetail),
+            jellyfin = jellyfin,
+            jellyfinSheet = JellyfinConnectSheet(this, infoSheet) { done -> overCinema { setup.signInToJellyfin(done) } },
+            seerr = seerr,
+            seerrSheet = SeerrSignInSheet(this, infoSheet) { done -> overCinema { setup.signInToSeerr(done) } },
+            infoSheet = infoSheet,
+            onOpenSettings = { moviesPanel.hide(); setup.openSettings() }
+        )
+
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                when {
+                    infoSheet.isVisible -> infoSheet.hide()
+                    setup.isVisible -> if (!setup.back()) finish()
+                    moviesPanel.isVisible -> if (!moviesPanel.back()) finish()
+                    else -> finish()
+                }
+            }
+        })
+
+        // Nothing to show until there is a Jellyfin server: first run, or after Reset everything.
+        if (!settings.setupDone || !jellyfin.hasServer) setup.startFirstRun() else moviesPanel.show()
+        handleDebugIntent(intent)
+    }
+
+    /** Where focus was in Cinema before a sign-in step opened over it, so it comes back to the same button. */
+    private var returnFocus: View? = null
+
+    /** A single sign-in step drawn over Cinema, which stays as it was underneath (a title page stays open). */
+    private fun overCinema(open: () -> Unit) {
+        returnFocus = currentFocus
+        open()
+    }
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        handleDebugIntent(intent)
+    }
+
+    /** Debug builds only: `--es debug_cinema_dest <name>` opens a page directly, for screenshots. */
+    private fun handleDebugIntent(intent: android.content.Intent?) {
+        if (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE == 0) return
+        intent?.getStringExtra("debug_setup_step")?.let { if (moviesPanel.isVisible) moviesPanel.hide(); setup.debugOpen(it); return }
+        if (setup.isVisible) return
+        intent?.getStringExtra("debug_cinema_dest")?.let { moviesPanel.debugGo(it) }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (::moviesPanel.isInitialized) moviesPanel.onResume()
+    }
+
+    override fun onDestroy() {
+        if (::moviesPanel.isInitialized) moviesPanel.close()
+        if (::setup.isInitialized) setup.shutdown()
+        super.onDestroy()
+    }
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        // The remote's voice key, if the TV hands it to apps at all: it opens Search and listens while held.
+        if (event.keyCode == KeyEvent.KEYCODE_SEARCH || event.keyCode == KeyEvent.KEYCODE_VOICE_ASSIST || event.keyCode == KeyEvent.KEYCODE_ASSIST) {
+            if (::moviesPanel.isInitialized && moviesPanel.isVisible && !infoSheet.isVisible && !setup.isVisible &&
+                moviesPanel.voiceKey(event.action == KeyEvent.ACTION_DOWN, event.repeatCount)) return true
+        }
+        val direction = when (event.keyCode) {
+            KeyEvent.KEYCODE_DPAD_UP -> View.FOCUS_UP
+            KeyEvent.KEYCODE_DPAD_DOWN -> View.FOCUS_DOWN
+            KeyEvent.KEYCODE_DPAD_LEFT -> View.FOCUS_LEFT
+            KeyEvent.KEYCODE_DPAD_RIGHT -> View.FOCUS_RIGHT
+            else -> 0
+        }
+        if (event.action == KeyEvent.ACTION_DOWN && direction != 0 && ::moviesPanel.isInitialized) {
+            val target: ViewGroup? = when {
+                infoSheet.isVisible && !infoSheet.isClosing -> findViewById(R.id.infoSheet)
+                findViewById<View>(R.id.setupHost).visibility == View.VISIBLE -> findViewById(R.id.setupHost)
+                moviesPanel.isVisible -> overlay
+                else -> null
+            }
+            if (target != null) {
+                val focused = currentFocus
+                val editingText = focused is EditText && (direction == View.FOCUS_LEFT || direction == View.FOCUS_RIGHT)
+                val scrolling = focused is ScrollView &&
+                    ((direction == View.FOCUS_DOWN && focused.canScrollVertically(1)) || (direction == View.FOCUS_UP && focused.canScrollVertically(-1)))
+                if (!editingText && !scrolling) {
+                    if (focused == null || focused === target || target.findFocus() == null) {
+                        // Focus strayed behind, or the container itself took it (slow devices): hand it to a child.
+                        (FocusFinder.getInstance().findNextFocus(target, null, direction) ?: target).requestFocus()
+                    } else if (target === overlay && moviesPanel.navigate(focused, direction)) {
+                        // The rail and the loading screen move focus themselves.
+                    } else if (target === overlay) {
+                        // Cinema has its own focus rules, so ask the views themselves, staying inside the page.
+                        focused.focusSearch(direction)?.takeIf { it !== focused && isInside(it, target) }?.requestFocus(direction)
+                    } else {
+                        FocusFinder.getInstance().findNextFocus(target, focused, direction)?.requestFocus(direction)
+                    }
+                    return true
+                }
+            }
+        }
+        return super.dispatchKeyEvent(event)
+    }
+
+    private fun isInside(view: View, parent: View): Boolean {
+        var node: android.view.ViewParent? = view.parent
+        while (node != null) { if (node === parent) return true; node = node.parent }
+        return false
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (::moviesPanel.isInitialized) moviesPanel.onPermissionResult(requestCode, grantResults.firstOrNull() == android.content.pm.PackageManager.PERMISSION_GRANTED)
+    }
+}

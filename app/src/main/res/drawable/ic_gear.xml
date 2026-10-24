@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Icon set: 24dp grid, 2dp strokes with round caps and joins (design system, phase 1). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp"
+    android:viewportWidth="24" android:viewportHeight="24">
+    <path android:strokeColor="#FFFFFF" android:strokeWidth="2" android:strokeLineCap="round" android:strokeLineJoin="round" android:pathData="M19.06,10.57 L21.13,10.90 L21.13,13.10 L19.06,13.43 L18.00,15.98 L19.24,17.68 L17.68,19.24 L15.98,18.00 L13.43,19.06 L13.10,21.13 L10.90,21.13 L10.57,19.06 L8.02,18.00 L6.32,19.24 L4.76,17.68 L6.00,15.98 L4.94,13.43 L2.87,13.10 L2.87,10.90 L4.94,10.57 L6.00,8.02 L4.76,6.32 L6.32,4.76 L8.02,6.00 L10.57,4.94 L10.90,2.87 L13.10,2.87 L13.43,4.94 L15.98,6.00 L17.68,4.76 L19.24,6.32 L18.00,8.02 Z M12,9 a3,3 0 1,1 0,6 a3,3 0 1,1 0,-6" />
+</vector>

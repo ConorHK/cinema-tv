@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Design system (2026-09-22). The layout is 960 x 540dp. Everything sits on an 8dp grid. -->
+
+    <!-- Spacing scale -->
+    <dimen name="space_1">4dp</dimen>
+    <dimen name="space_2">8dp</dimen>
+    <dimen name="space_3">16dp</dimen>
+    <dimen name="space_4">24dp</dimen>
+    <dimen name="space_5">32dp</dimen>
+    <dimen name="space_6">40dp</dimen>
+    <dimen name="space_7">48dp</dimen>
+    <dimen name="space_8">64dp</dimen>
+
+    <!-- Page frame -->
+    <dimen name="page_margin">48dp</dimen>          <!-- left/right edge of every row, heading and panel (TV-safe) -->
+    <dimen name="space_neg_page">-48dp</dimen>      <!-- rails bleed to the screen edge, then pad back to the margin -->
+    <dimen name="section_gap">40dp</dimen>          <!-- between home sections -->
+    <dimen name="heading_gap">16dp</dimen>          <!-- section title to its content -->
+    <dimen name="edge_fade">56dp</dimen>            <!-- top/bottom/side fades instead of hard cuts -->
+
+    <!-- Radii -->
+    <dimen name="radius_small">10dp</dimen>         <!-- posters, thumbnails, tracks -->
+    <dimen name="radius_card">20dp</dimen>          <!-- cards, menus, sheets -->
+    <dimen name="radius_pill">200dp</dimen>         <!-- buttons, tabs, chips, header -->
+
+    <!-- Type scale (six styles; see design/Type.kt) -->
+    <dimen name="text_display">36sp</dimen>
+    <dimen name="text_title">26sp</dimen>
+    <dimen name="text_heading">22sp</dimen>
+    <dimen name="text_body">18sp</dimen>
+    <dimen name="text_caption">16sp</dimen>
+    <dimen name="text_eyebrow">14sp</dimen>
+
+    <!-- Controls -->
+    <dimen name="control_height">52dp</dimen>       <!-- buttons, header -->
+    <dimen name="row_height">64dp</dimen>           <!-- list rows -->
+    <dimen name="icon_glyph">24dp</dimen>
+
+    <!-- Focus: a soft ivory halo around round icons; an ivory mat (with an ink gap) around images -->
+    <dimen name="focus_halo">16dp</dimen>
+    <dimen name="focus_gap_width">3dp</dimen>
+    <dimen name="focus_ring_width">4dp</dimen>
+    <dimen name="focus_reserve">16dp</dimen>
+
+    <!-- Your apps: 7 apps + All apps = 8 slots x 108dp = 864dp, exactly the space between the margins -->
+    <dimen name="tile_gap">0dp</dimen>
+    <dimen name="tile_width">108dp</dimen>
+    <dimen name="tile_height">136dp</dimen>
+    <dimen name="tile_icon_size">72dp</dimen>
+    <dimen name="tile_icon_size_small">64dp</dimen>
+    <dimen name="tile_label_text_size">@dimen/text_caption</dimen>
+    <dimen name="tile_label_text_size_small">@dimen/text_caption</dimen>
+
+    <!-- Shared 4-column rhythm for card rows: 4 x 204 + 3 x 16 = 864dp -->
+    <dimen name="card_column">204dp</dimen>
+    <dimen name="card_gutter">16dp</dimen>
+    <dimen name="featured_tile_width">@dimen/card_column</dimen>
+    <dimen name="featured_tile_height">72dp</dimen>
+
+    <!-- All apps / search grid: 7 columns x 123dp = 861dp -->
+    <dimen name="all_apps_tile_width">123dp</dimen>
+    <dimen name="all_apps_tile_height">132dp</dimen>
+
+    <!-- Header -->
+    <dimen name="header_padding_h">48dp</dimen>
+    <dimen name="header_nav_gap">36dp</dimen>
+    <dimen name="header_icon_gap">24dp</dimen>
+    <dimen name="header_icon_size">24dp</dimen>
+    <dimen name="header_icon_touch">44dp</dimen>
+    <dimen name="header_nav_text_size">18sp</dimen>
+    <dimen name="clock_text_size">18sp</dimen>
+
+    <!-- Legacy -->
+    <dimen name="safe_margin_h">@dimen/page_margin</dimen>
+    <dimen name="safe_margin_v">0dp</dimen>
+    <dimen name="shelf_side_margin">@dimen/page_margin</dimen>
+    <dimen name="shelf_heading_text_size">@dimen/text_eyebrow</dimen>
+    <dimen name="footer_text_size">@dimen/text_caption</dimen>
+    <dimen name="search_box_width">560dp</dimen>
+</resources>

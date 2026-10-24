@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.Cinema" parent="Theme.AppCompat.NoActionBar">
+        <item name="android:windowBackground">@color/ink</item>
+        <item name="colorPrimary">@color/cobalt</item>
+        <item name="colorAccent">@color/butter</item>
+    </style>
+
+    <!-- The six text styles (design/Type.kt mirrors these for views built in code). -->
+    <style name="Text" />
+    <style name="Text.Display">
+        <item name="android:fontFamily">serif</item>
+        <item name="android:textSize">@dimen/text_display</item>
+        <item name="android:textColor">@color/text</item>
+    </style>
+    <style name="Text.Title">
+        <item name="android:fontFamily">serif</item>
+        <item name="android:textSize">@dimen/text_title</item>
+        <item name="android:textColor">@color/text</item>
+    </style>
+    <style name="Text.Heading">
+        <item name="android:fontFamily">serif</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textSize">@dimen/text_heading</item>
+        <item name="android:textColor">@color/text</item>
+    </style>
+    <style name="Text.Body">
+        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:textSize">@dimen/text_body</item>
+        <item name="android:textColor">@color/text</item>
+    </style>
+    <style name="Text.Caption">
+        <item name="android:fontFamily">sans-serif</item>
+        <item name="android:textSize">@dimen/text_caption</item>
+        <item name="android:textColor">@color/text_muted</item>
+    </style>
+    <style name="Text.Eyebrow">
+        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:textSize">@dimen/text_eyebrow</item>
+        <item name="android:textColor">@color/accent</item>
+        <item name="android:letterSpacing">0.16</item>
+        <item name="android:textAllCaps">true</item>
+    </style>
+
+    <!-- A section heading on the page: Title style on the page scrim, with a soft shadow for the painting. -->
+    <style name="SectionTitle" parent="Text.Title">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:shadowColor">#99000000</item>
+        <item name="android:shadowDy">2</item>
+        <item name="android:shadowRadius">8</item>
+    </style>
+
+    <style name="HeaderNavTab" parent="Text.Body">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">40dp</item>
+        <item name="android:gravity">center</item>
+        <item name="android:focusable">true</item>
+        <item name="android:clickable">true</item>
+        <item name="android:layout_marginStart">@dimen/space_1</item>
+        <item name="android:layout_marginEnd">@dimen/space_1</item>
+        <item name="android:paddingStart">18dp</item>
+        <item name="android:paddingEnd">18dp</item>
+        <item name="android:textSize">@dimen/header_nav_text_size</item>
+    </style>
+
+    <style name="HeaderIcon">
+        <item name="android:layout_width">@dimen/header_icon_touch</item>
+        <item name="android:layout_height">@dimen/header_icon_touch</item>
+        <item name="android:layout_marginStart">@dimen/space_1</item>
+        <item name="android:padding">10dp</item>
+        <item name="android:focusable">true</item>
+        <item name="android:clickable">true</item>
+        <item name="android:scaleType">fitCenter</item>
+        <item name="android:tint">@color/text</item>
+    </style>
+</resources>

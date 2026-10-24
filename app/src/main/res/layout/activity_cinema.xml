@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/ink">
+
+    <!-- MOVIES: a streaming-style page (featured title and rows of posters) with a title page that opens over it. -->
+    <FrameLayout
+        android:id="@+id/moviesOverlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@color/scrim"
+        android:clickable="true"
+        android:focusable="true"
+        android:visibility="gone">
+
+        <FrameLayout
+            android:id="@+id/moviesBody"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent">
+
+            <com.danielportelabyrne.cinema.ui.CinemaContentScrollView
+                android:id="@+id/moviesPage"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:clipChildren="false"
+                android:clipToPadding="false"
+                android:scrollbars="none">
+
+                <LinearLayout
+                    android:id="@+id/moviesContent"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:clipChildren="false"
+                    android:clipToPadding="false"
+                    android:orientation="vertical"
+                    android:paddingBottom="@dimen/space_6" />
+            </com.danielportelabyrne.cinema.ui.CinemaContentScrollView>
+
+            <!-- The icon rail expands over the page on focus; content keeps its position. -->
+            <LinearLayout
+                android:id="@+id/moviesTop"
+                android:layout_width="80dp"
+                android:layout_height="match_parent"
+                android:layout_gravity="start"
+                android:clipChildren="false"
+                android:clipToPadding="false"
+                android:orientation="vertical" />
+        </FrameLayout>
+
+        <FrameLayout
+            android:id="@+id/movieDetail"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:clickable="true"
+            android:visibility="gone" />
+    </FrameLayout>
+
+    <!-- First-run setup and the settings pages draw here, over Cinema. -->
+    <FrameLayout
+        android:id="@+id/setupHost"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:clickable="true"
+        android:focusable="false"
+        android:visibility="gone" />
+
+    <!-- Sheets: sign-in, reviews, confirmations. -->
+    <FrameLayout
+        android:id="@+id/infoSheet"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:clickable="true"
+        android:focusable="true"
+        android:visibility="gone" />
+</FrameLayout>

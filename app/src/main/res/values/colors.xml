@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      "Painted Home" palette, sampled against the bundled paintings. The UI is
+      furniture-like chrome on top of the artwork, not a recreation of it.
+
+      Design system (docs/ui-polish-prompt.md, 2026-09-22): UI code uses the ROLE
+      colours below. Teal, olive and walnut belong to the art (prints, icons,
+      motifs), never to UI chrome.
+    -->
+
+    <!-- Palette -->
+    <color name="ivory">#F3E9CF</color>
+    <color name="ink">#26271D</color>
+    <color name="olive">#454A2B</color>
+    <color name="cobalt">#304E79</color>
+    <color name="butter">#DDBB57</color>
+    <color name="terracotta">#AF5938</color>
+    <color name="deep_teal">#28766C</color>
+    <color name="walnut">#795638</color>
+    <color name="espresso">#302319</color>
+    <color name="letterboxd_red">#E85D4A</color>
+
+    <!-- Roles -->
+    <color name="surface">#E6302319</color>            <!-- header, cards, menus: espresso at 90% -->
+    <color name="surface_solid">#FF302319</color>      <!-- sheets and menus that must not show through -->
+    <color name="surface_raised">#FF3B2C1F</color>     <!-- buttons and rows at rest -->
+    <color name="surface_selected">#FF5C4531</color>   <!-- the current tab / current choice only -->
+    <color name="text">@color/ivory</color>
+    <color name="text_muted">#C7F3E9CF</color>         <!-- captions: ivory at 78% -->
+    <color name="text_faint">#8CF3E9CF</color>         <!-- hints only: ivory at 55% -->
+    <color name="accent">@color/butter</color>         <!-- eyebrows, progress, sliders -->
+    <color name="action">@color/terracotta</color>     <!-- one primary action per screen -->
+    <color name="focus">@color/ivory</color>           <!-- the lit state -->
+    <color name="on_focus">@color/ink</color>          <!-- text/icons on the lit state -->
+    <color name="hairline">#24F3E9CF</color>
+    <color name="scrim">#1A140E</color>
+    <color name="overlay_ground">#D91C150F</color>     <!-- full-screen panels, over the blurred painting -->
+    <color name="sheet_scrim">#8C1C150F</color>        <!-- around a centred sheet, over the blurred painting -->
+
+    <!-- Paper ("things in the room": prints, recipe cards, the Tonight card) -->
+    <color name="paper_top">#FFF3E7C6</color>
+    <color name="paper_bottom">#FFE6D5A8</color>
+    <color name="paper_ink">#FF2B2117</color>
+    <color name="paper_ink_muted">#FF6B5A46</color>
+
+    <!-- Legacy names, now pointing at roles so older code stays on-system -->
+    <color name="header_bg">@color/surface</color>
+    <color name="header_text">@color/text</color>
+    <color name="shelf_scrim_top">#00343821</color>
+    <color name="shelf_scrim_bottom">#B3232616</color>
+    <color name="tile_surface">@color/ivory</color>
+    <color name="panel_bg">@color/surface</color>
+    <color name="panel_stroke">@color/hairline</color>
+    <color name="menu_bg">@color/surface_solid</color>
+    <color name="btn_brown">@color/surface_raised</color>
+    <color name="btn_brown_on">@color/surface_selected</color>
+    <color name="pill_selected">@color/surface_selected</color>
+    <color name="ink_dim">#B326271D</color>
+    <color name="disc_walnut">#795638</color>
+    <color name="focus_ring">@color/ivory</color>
+    <color name="focus_gap">@color/ink</color>
+    <color name="overlay_bg">@color/overlay_ground</color>
+    <color name="overlay_ivory_dim">#B3F3E9CF</color>
+    <color name="ivory_text">@color/text</color>
+    <color name="ivory_text_dim">@color/text_muted</color>
+    <color name="footer_text">@color/text_muted</color>
+    <color name="paper_lit">#E6D6AE</color>
+</resources>
