@@ -2535,7 +2535,8 @@ class MoviesPanel(
                 more.map { entry(it) }.forEachIndexed { i, m -> r.inner.addView(card(m, more, small = true, nested = false), cardParams(i, small = true)) }
             }
         }
-        val scroll = android.widget.ScrollView(activity).apply { isVerticalScrollBarEnabled = false; clipChildren = false; clipToPadding = false; addView(column, FrameLayout.LayoutParams(-1, -2)) }
+        // Else focus parks here, stuck.
+        val scroll = android.widget.ScrollView(activity).apply { isFocusable = false; isVerticalScrollBarEnabled = false; clipChildren = false; clipToPadding = false; addView(column, FrameLayout.LayoutParams(-1, -2)) }
         detail.addView(scroll, FrameLayout.LayoutParams(-1, -1))
         // The title's own buttons sit at the top of the page: focusing one scrolls all the way up, so the title and
         // eyebrow come back, instead of stopping at the point where the button just becomes visible.
@@ -2605,6 +2606,8 @@ class MoviesPanel(
     private fun setupPrimary(button: CinemaButton, e: Entry, clearStale: CinemaButton, restart: CinemaButton? = null, refresh: () -> Unit) {
         fun set(label: String, enabled: Boolean, action: (() -> Unit)?) {
             button.setText(label); button.isEnabled = enabled
+            // Disabled while checking, so focus arrives late.
+            if (enabled && detailOpen && overlay.findFocus() == null) button.requestFocus()
             // Terracotta only while there is something to queue; a request already on its way rests as glass.
             if (e.library == null) button.kind = if (enabled) CinemaButton.Kind.TERRA else CinemaButton.Kind.GLASS
             button.setOnClickListener { action?.invoke() }
