@@ -130,6 +130,9 @@ object JellyfinApi {
     fun itemUrl(base: String, userId: String, itemId: String): String =
         "$base/Users/${enc(userId)}/Items/${enc(itemId)}?Fields=MediaSources,Chapters,Trickplay,Overview,Genres,OfficialRating,CommunityRating"
 
+    /** POST marks an item watched, DELETE unwatched. The legacy route works on every server version. */
+    fun playedUrl(base: String, userId: String, itemId: String): String = "$base/Users/${enc(userId)}/PlayedItems/${enc(itemId)}"
+
     /** A chapter's still (`Images/Chapter/{index}`), when the server has one. */
     fun chapterImageUrl(base: String, itemId: String, index: Int, tag: String, maxWidth: Int = 480): String =
         "$base/Items/${enc(itemId)}/Images/Chapter/$index?tag=${enc(tag)}&maxWidth=$maxWidth&quality=85"

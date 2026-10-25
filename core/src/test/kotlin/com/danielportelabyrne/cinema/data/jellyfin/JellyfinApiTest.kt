@@ -19,6 +19,10 @@ class JellyfinApiTest {
         assertTrue(url.contains("ProviderIds") && url.contains("Overview") && url.contains("Genres"))
     }
 
+    @Test fun marks_watched_on_the_users_played_items() {
+        assertEquals("http://deck:8096/Users/user1/PlayedItems/ep1", JellyfinApi.playedUrl("http://deck:8096", "user1", "ep1"))
+    }
+
     @Test fun finds_a_series_by_tmdb_when_it_has_no_imdb_id() {
         val items = JellyfinApi.parseItems("""{"Items":[
           {"Id":"m1","Name":"Same id, a film","Type":"Movie","ProviderIds":{"Tmdb":"77"}},

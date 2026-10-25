@@ -35,7 +35,7 @@ object WatchProgress {
     /** "42 min", or "1 h 05 min" past an hour. */
     fun clock(minutes: Int): String = if (minutes < 60) "$minutes min" else "${minutes / 60} h ${"%02d".format(minutes % 60)} min"
 
-    /** An episode card's play disc: a tick once it has been watched (pressing it still plays it again). */
+    /** An episode card shows as watched: an open eye and a WATCHED tag. */
     fun episodeShowsTick(state: WatchState): Boolean = state == WatchState.Watched
 
     /** The bar along an episode still's foot: only while part-watched and its length is known. */

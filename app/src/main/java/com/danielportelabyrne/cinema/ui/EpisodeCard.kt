@@ -13,6 +13,7 @@ import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.text.TextUtils
 import android.view.Gravity
+import android.view.KeyEvent
 import android.view.View
 import android.view.ViewOutlineProvider
 import android.widget.FrameLayout
@@ -35,11 +36,13 @@ import com.danielportelabyrne.cinema.design.cinema.StripeDrawable
 class EpisodeCard(context: Context, val number: Int, name: String, overview: String?) : FrameLayout(context) {
     val play = ActionDisc(context, 78, R.drawable.ic_cin_play, 34, nudge = 2f)
     val download = ActionDisc(context, 62, R.drawable.ic_cin_dl, 28)
+    /** Under Play on a library episode: an open eye when watched; OK flips it. */
+    val mark = ActionDisc(context, 62, R.drawable.ic_cin_eye_off, 28).apply { visibility = GONE }
     /** Called once the card lights up or goes out, so the page can scroll it into view. */
     var onLit: ((Boolean) -> Unit)? = null
-    /** Shown above the Download disc while it has focus ("Download S2 E4"); null for none. */
+    /** Shown while the Download or eye disc has focus ("Download S2 E4"); null for none. */
     var tipText: String? = null
-        set(value) { field = value; tip.text = value.orEmpty(); refreshTip() }
+        set(value) { field = value; refreshTip() }
 
     private val column = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL; clipChildren = false; clipToPadding = false }
     private val still = FrameLayout(context)
@@ -103,7 +106,10 @@ class EpisodeCard(context: Context, val number: Int, name: String, overview: Str
         badge.addView(badgeText)
         still.addView(badge, LayoutParams(-2, -2, Gravity.TOP or Gravity.END).apply { rightMargin = p(12); topMargin = p(12) })
         // Discs are larger than they look (room for the focus rings), so the 22 px gap is taken back off their margins.
-        actions.addView(play, LinearLayout.LayoutParams(play.box, play.box))
+        val playColumn = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL; clipChildren = false; clipToPadding = false }
+        playColumn.addView(play, LinearLayout.LayoutParams(play.box, play.box))
+        playColumn.addView(mark, LinearLayout.LayoutParams(mark.box, mark.box).apply { topMargin = p(32) - play.pad - mark.pad })
+        actions.addView(playColumn, LinearLayout.LayoutParams(-2, -2))
         actions.addView(download, LinearLayout.LayoutParams(download.box, download.box).apply { marginStart = p(22) - play.pad - download.pad })
         still.addView(actions, LayoutParams(-1, -1))
         airs.setPadding(p(18), p(10), p(18), p(10)); airs.background = Cinema.glass(context, 22f, 0xA80C0806.toInt())
@@ -118,19 +124,47 @@ class EpisodeCard(context: Context, val number: Int, name: String, overview: Str
         column.addView(texts, LinearLayout.LayoutParams(stillW, -2).apply { topMargin = p(20) })
         addView(column, LayoutParams(stillW, -2))
         addView(tip, LayoutParams(-2, -2, Gravity.TOP or Gravity.END).apply { rightMargin = p(4) })
-        tip.translationY = -pf(18)
+        // Straddles the still's top corner, like a tab on it.
+        tip.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> placeTip() }
 
         play.onFocus = { post { refresh() } }
         download.onFocus = { post { refresh() } }
+        mark.onFocus = { post { refresh() } }
         buildPlaceholder()
     }
 
-    /** Watched all the way through: the Play disc shows a tick instead (it still plays the episode again). */
+    /** Watched all the way through: the eye opens and a WATCHED tag shows. */
     var watched = false
-        set(value) { field = value; showPlayIcon() }
+        set(value) { field = value; showPlayIcon(); showWatched() }
+
+    /** A Jellyfin episode, so it can be marked watched. Set before [bind]. */
+    var markable = false
+    private var shownState: CardState? = null
+
+    /** Whether the eye shows for [look]; it replaces the library tick. */
+    fun marks(look: CardLook): Boolean = markable && look.state == CardState.LIBRARY
+
+    private fun showWatched() {
+        if (shownState != CardState.LIBRARY) return
+        mark.set(if (watched) R.drawable.ic_cin_eye else R.drawable.ic_cin_eye_off, Cinema.CREAM, ring = false, progress = null)
+        mark.contentDescription = if (watched) "Watched. Mark episode $number unwatched" else "Not watched. Mark episode $number watched"
+        refreshTip()
+    }
+
+    /** The eye sits off the rail: Down reaches it, and Left or Right leave as if from Play. */
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (event.action == KeyEvent.ACTION_DOWN && mark.visibility == VISIBLE) {
+            when (event.keyCode) {
+                KeyEvent.KEYCODE_DPAD_DOWN -> if (play.isFocused) return mark.requestFocus()
+                KeyEvent.KEYCODE_DPAD_UP -> if (mark.isFocused) return play.requestFocus()
+                KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT -> if (mark.isFocused) play.requestFocus()
+            }
+        }
+        return super.dispatchKeyEvent(event)
+    }
 
     private fun showPlayIcon() {
-        if (watched) play.set(R.drawable.ic_cin_check, Cinema.SAFFRON, ring = false, progress = null) else play.set(R.drawable.ic_cin_play, Cinema.CREAM, ring = false, progress = null)
+        play.set(R.drawable.ic_cin_play, Cinema.CREAM, ring = false, progress = null)
         play.contentDescription = if (watched) "Watched. Play episode $number again" else "Play episode $number"
     }
 
@@ -151,6 +185,8 @@ class EpisodeCard(context: Context, val number: Int, name: String, overview: Str
         val accent = if (look.badgeAccent) Cinema.SAFFRON else Cinema.MUTED
         badgeText.setTextColor(accent)
         badgeCheck.visibility = if (look.state == CardState.LIBRARY) VISIBLE else GONE
+        // In the library it drops below the WATCHED tag's corner.
+        (badge.layoutParams as LayoutParams).topMargin = p(if (look.state == CardState.LIBRARY) 28 else 12)
         badge.background = GradientDrawable().apply {
             cornerRadius = pf(16); setColor(0xB80C0806.toInt())
             setStroke(Math.max(1, p(1)), if (look.badgeAccent) Cinema.alpha(Cinema.SAFFRON, 0.5f) else Cinema.alpha(Cinema.CREAM, 0.2f))
@@ -159,7 +195,9 @@ class EpisodeCard(context: Context, val number: Int, name: String, overview: Str
         actions.visibility = if (cardStop) GONE else VISIBLE
         play.visibility = if (look.playShown) VISIBLE else GONE
         play.isFocusable = look.playShown
-        download.visibility = if (look.downloadShown) VISIBLE else GONE
+        download.visibility = if (look.downloadShown && !marks(look)) VISIBLE else GONE
+        mark.visibility = if (marks(look)) VISIBLE else GONE
+        shownState = look.state
         download.isFocusable = look.downloadFocusable
         download.isClickable = look.downloadFocusable
         when (look.state) {
@@ -177,6 +215,7 @@ class EpisodeCard(context: Context, val number: Int, name: String, overview: Str
             CardState.DOWNLOADING -> look.badge?.lowercase() ?: "Downloading"
             else -> "Download episode $number"
         }
+        showWatched()
 
         airs.visibility = if (unaired && airsLabel != null) VISIBLE else GONE
         // With a disc to press, the label moves to the still's foot so the two do not overlap; alone, it stays centred.
@@ -253,11 +292,11 @@ class EpisodeCard(context: Context, val number: Int, name: String, overview: Str
         val scale = if (now) 1.06f else 1f
         val shift = if (now) pf(8) else 0f
         if (Motion.animationsOn(this)) {
-            still.animate().scaleX(scale).scaleY(scale).setDuration(duration).setInterpolator(Motion.SETTLE).setUpdateListener { invalidate() }.start()
+            still.animate().scaleX(scale).scaleY(scale).setDuration(duration).setInterpolator(Motion.SETTLE).setUpdateListener { placeTip(); invalidate() }.start()
             texts.animate().translationY(shift).setDuration(duration).setInterpolator(Motion.SETTLE).start()
             overviewText.animate().alpha(if (now) 1f else 0f).setDuration(duration).start()
         } else {
-            still.scaleX = scale; still.scaleY = scale; texts.translationY = shift; overviewText.alpha = if (now) 1f else 0f
+            still.scaleX = scale; still.scaleY = scale; placeTip(); texts.translationY = shift; overviewText.alpha = if (now) 1f else 0f
         }
         still.elevation = pf(if (now) 34 else 14)
         title.setTextColor(if (now) Cinema.CREAM else Cinema.CARD_TITLE)
@@ -267,7 +306,25 @@ class EpisodeCard(context: Context, val number: Int, name: String, overview: Str
         onLit?.invoke(now)
     }
 
-    private fun refreshTip() { tip.visibility = if (download.isFocused && !tipText.isNullOrEmpty()) VISIBLE else GONE }
+    /** Keeps the tag on the still's top right corner as it grows. */
+    private fun placeTip() {
+        val grow = still.scaleX - 1f
+        tip.translationX = grow * still.width / 2f
+        tip.translationY = -tip.height / 2f - grow * still.height / 2f
+    }
+
+    private val tipLit = Cinema.glass(context, 8f, Cinema.SAFFRON)
+    private val tipRest = Cinema.glass(context, 8f, 0xB80C0806.toInt())
+
+    /** Saffron with [tipText] while a disc has focus; a watched episode keeps a dark WATCHED tag. */
+    private fun refreshTip() {
+        val focused = (download.isFocused || mark.isFocused) && !tipText.isNullOrEmpty()
+        val resting = !focused && watched && mark.visibility == VISIBLE
+        tip.visibility = if (focused || resting) VISIBLE else GONE
+        tip.text = if (focused) tipText else "WATCHED"
+        tip.background = if (focused) tipLit else tipRest
+        tip.setTextColor(if (focused) Cinema.INK else Cinema.CREAM)
+    }
 
     override fun dispatchDraw(canvas: Canvas) {
         if (lit) {
