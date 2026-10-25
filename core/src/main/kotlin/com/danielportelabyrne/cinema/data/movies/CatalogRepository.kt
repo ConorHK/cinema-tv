@@ -1,5 +1,6 @@
 package com.danielportelabyrne.cinema.data.movies
 
+import com.danielportelabyrne.cinema.data.exchange
 import com.danielportelabyrne.cinema.platform.Platform
 import com.danielportelabyrne.cinema.platform.Log
 import java.io.File
@@ -45,10 +46,10 @@ class CatalogRepository(platform: Platform) {
             val c = URL("https://apis.justwatch.com/graphql").openConnection() as HttpURLConnection
             c.connectTimeout = 10_000; c.readTimeout = 20_000; c.requestMethod = "POST"; c.doOutput = true
             c.setRequestProperty("Content-Type", "application/json"); c.setRequestProperty("User-Agent", "CinemaTV/1.0 (Android TV)")
-            try {
+            c.exchange {
                 c.outputStream.use { it.write(body.toByteArray()) }
                 if (c.responseCode == 200) c.inputStream.bufferedReader().use { it.readText() } else { Log.w(TAG, "HTTP ${c.responseCode}"); null }
-            } finally { c.disconnect() }
+            }
         } catch (e: Exception) { Log.w(TAG, "fetch failed: ${e.javaClass.simpleName}"); null }
     }
 }

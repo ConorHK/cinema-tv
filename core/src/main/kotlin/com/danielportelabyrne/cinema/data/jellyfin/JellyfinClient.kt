@@ -1,5 +1,6 @@
 package com.danielportelabyrne.cinema.data.jellyfin
 
+import com.danielportelabyrne.cinema.data.exchange
 import com.danielportelabyrne.cinema.platform.Log
 import com.danielportelabyrne.cinema.platform.Platform
 import com.danielportelabyrne.cinema.ui.Perf
@@ -293,7 +294,7 @@ class JellyfinClient(platform: Platform) {
             connection.setRequestProperty("Authorization", JellyfinApi.authHeader(deviceId, deviceName, if (authed) token else null))
             connection.setRequestProperty("Accept", "application/json")
             if (json != null) { connection.doOutput = true; connection.setRequestProperty("Content-Type", "application/json") }
-            try {
+            connection.exchange {
                 // Connecting separately tells a server that never answers (asleep) from one that is only slow to reply.
                 connection.connect(); connected = true; reachability.reached()
                 if (json != null) connection.outputStream.use { it.write(json.toByteArray()) }
@@ -303,7 +304,7 @@ class JellyfinClient(platform: Platform) {
                     code !in 200..299 -> { Log.w(TAG, "$method ${url.substringBefore('?')} -> HTTP $code"); null }
                     else -> connection.inputStream.bufferedReader().use { it.readText() }
                 }).also { Perf.took("jellyfin $method ${url.substringBefore('?').removePrefix(server)} -> $code", Perf.now() - at) }
-            } finally { connection.disconnect() }
+            }
         } catch (e: Exception) {
             val unreachable = reachability.failed(e, duringConnect = !connected)
             Log.w(TAG, "$method ${url.substringBefore('?')} failed: ${e.javaClass.simpleName} after ${Perf.now() - at} ms" + if (unreachable) " (unreachable)" else "")

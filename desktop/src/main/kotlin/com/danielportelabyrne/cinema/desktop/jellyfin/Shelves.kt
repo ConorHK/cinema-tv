@@ -1,5 +1,6 @@
 package com.danielportelabyrne.cinema.desktop.jellyfin
 
+import com.danielportelabyrne.cinema.data.exchange
 import com.danielportelabyrne.cinema.platform.Platform
 import com.danielportelabyrne.cinema.platform.Log
 import com.danielportelabyrne.cinema.data.jellyfin.JellyfinApi
@@ -52,10 +53,10 @@ class Shelves(platform: Platform, private val client: JellyfinClient) {
         c.connectTimeout = 6000; c.readTimeout = 10000
         client.playbackHeaders().forEach { (k, v) -> c.setRequestProperty(k, v) }
         c.setRequestProperty("Accept", "application/json")
-        try {
+        c.exchange {
             if (c.responseCode in 200..299) c.inputStream.bufferedReader().use { it.readText() }
             else { Log.w(TAG, "GET ${url.substringBefore('?')} -> HTTP ${c.responseCode}"); null }
-        } finally { c.disconnect() }
+        }
     } catch (e: Exception) {
         Log.w(TAG, "GET ${url.substringBefore('?')} failed: ${e.javaClass.simpleName}")
         null

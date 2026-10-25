@@ -1,5 +1,6 @@
 package com.danielportelabyrne.cinema.data.movies
 
+import com.danielportelabyrne.cinema.data.exchange
 import com.danielportelabyrne.cinema.data.jellyfin.Reachability
 import com.danielportelabyrne.cinema.platform.Log
 import com.danielportelabyrne.cinema.platform.Platform
@@ -271,13 +272,13 @@ internal fun arrCall(c: SonarrConfig, method: String, path: String, body: String
         conn.requestMethod = method; conn.connectTimeout = 6000; conn.readTimeout = 20000
         conn.setRequestProperty("X-Api-Key", c.apiKey); conn.setRequestProperty("Accept", "application/json")
         if (body != null) { conn.doOutput = true; conn.setRequestProperty("Content-Type", "application/json") }
-        try {
+        conn.exchange {
             conn.connect(); connected = true; gate.reached()
             if (body != null) conn.outputStream.use { it.write(body.toByteArray()) }
             val code = conn.responseCode
             Perf.took("arr $method ${path.substringBefore('?')} -> $code", Perf.now() - at)
             if (code in 200..299) (conn.inputStream.bufferedReader().use { it.readText() }.ifBlank { "{}" }) else { Log.w(TAG, "$method ${path.substringBefore('?')} -> HTTP $code"); null }
-        } finally { conn.disconnect() }
+        }
     } catch (e: Exception) {
         val unreachable = gate.failed(e, duringConnect = !connected)
         Log.w(TAG, "$method ${c.baseUrl}${path.substringBefore('?')} failed: ${e.javaClass.simpleName} after ${Perf.now() - at} ms" +

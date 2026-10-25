@@ -1,5 +1,6 @@
 package com.danielportelabyrne.cinema.data.movies
 
+import com.danielportelabyrne.cinema.data.exchange
 import com.danielportelabyrne.cinema.platform.Platform
 import com.danielportelabyrne.cinema.platform.Log
 import org.json.JSONObject
@@ -126,7 +127,7 @@ class SeerrClient(platform: Platform) {
     fun probe(address: String): Boolean = try {
         val url = com.danielportelabyrne.cinema.data.settings.CinemaSettings.cleanUrl(address) ?: return false
         val c = open("GET", "$url/api/v1/status", withCookie = false)
-        try { c.responseCode == 200 && JSONObject(c.inputStream.bufferedReader().use { it.readText() }).has("version") } finally { c.disconnect() }
+        c.exchange { c.responseCode == 200 && JSONObject(c.inputStream.bufferedReader().use { it.readText() }).has("version") }
     } catch (_: Exception) { false }
 
     /** Signs in with a Seerr (local) account's email and password. Null on success, otherwise a short reason. */
@@ -139,7 +140,7 @@ class SeerrClient(platform: Platform) {
         if (!hasServer) throw IllegalStateException("no address")
         val c = open("POST", "$base$path", withCookie = false)
         c.doOutput = true
-        try {
+        c.exchange {
             c.outputStream.use { it.write(body.toByteArray()) }
             val code = c.responseCode
             val error = SeerrApi.finishSignIn(code, c.headerFields) { session ->
@@ -147,25 +148,25 @@ class SeerrClient(platform: Platform) {
             }
             if (code == 200 && error != null) Log.w(TAG, "Sign-in response omitted a usable session cookie")
             error
-        } finally { c.disconnect() }
+        }
     } catch (e: Exception) { Log.w(TAG, "signIn failed: ${e.javaClass.simpleName}"); "Couldn't reach Seerr" }
 
     /** Asks for a film, or for [seasons] of a series (every season when none are named). */
     fun request(kind: Kind, tmdbId: Long, seasons: List<Int>? = null): RequestOutcome = try {
         val c = open("POST", "$base/api/v1/request")
         c.doOutput = true
-        try {
+        c.exchange {
             c.outputStream.use { it.write(SeerrApi.requestBody(kind, tmdbId, seasons).toByteArray()) }
             val code = c.responseCode
             if (code == 401) signOut()
             SeerrApi.outcomeFor(code)
-        } finally { c.disconnect() }
+        }
     } catch (e: Exception) { Log.w(TAG, "request failed: ${e.javaClass.simpleName}"); RequestOutcome.FAILED }
 
     /** Withdraws a request from Seerr, including one no release has been found for yet. True when Seerr accepted it. */
     fun cancelRequest(id: Int): Boolean = try {
         val c = open("DELETE", "$base/api/v1/request/$id")
-        try { val code = c.responseCode; if (code == 401) signOut(); code in 200..299 } finally { c.disconnect() }
+        c.exchange { val code = c.responseCode; if (code == 401) signOut(); code in 200..299 }
     } catch (e: Exception) { Log.w(TAG, "cancelRequest failed: ${e.javaClass.simpleName}"); false }
 
     fun availability(kind: Kind, tmdbId: Long): Availability = titleState(kind, tmdbId)?.availability ?: Availability.NONE
@@ -217,7 +218,7 @@ class SeerrClient(platform: Platform) {
         val c = open(method, endpoint.trimEnd('/') + path)
         c.connectTimeout = 3000; c.readTimeout = readTimeoutMs
         c.setRequestProperty(HELPER_ACTION_HEADER, "1")
-        try { if (c.responseCode in 200..299) c.inputStream.bufferedReader().use { it.readText() } else null } finally { c.disconnect() }
+        c.exchange { if (c.responseCode in 200..299) c.inputStream.bufferedReader().use { it.readText() } else null }
     } catch (_: Exception) { null }
 
     /**
@@ -231,7 +232,7 @@ class SeerrClient(platform: Platform) {
         c.readTimeout = 120_000
         c.doOutput = true
         val endpoint = streamEndpoint()
-        try {
+        c.exchange {
             val body = streamBody(title, year, season, episode, runtimeMin)
             c.outputStream.use { it.write(body.toString().toByteArray()) }
             when (c.responseCode) {
@@ -246,7 +247,7 @@ class SeerrClient(platform: Platform) {
                 504 -> StreamStart(StreamStatus.CONNECTING, null, null)
                 else -> StreamStart(StreamStatus.UNAVAILABLE, null, null)
             }
-        } finally { c.disconnect() }
+        }
     } catch (e: Exception) {
         Log.w(TAG, "startStream failed: ${e.javaClass.simpleName}")
         StreamStart(StreamStatus.UNAVAILABLE, null, null)
@@ -275,12 +276,12 @@ class SeerrClient(platform: Platform) {
         try {
             val c = open("POST", "${streamEndpoint()}/prepare")
             c.connectTimeout = 3000; c.readTimeout = 5000; c.doOutput = true
-            try {
+            c.exchange {
                 c.outputStream.use { it.write(streamBody(title, year, season, episode, runtimeMin).toString().toByteArray()) }
                 val code = c.responseCode
                 (if (code < 400) c.inputStream else c.errorStream)?.use { it.readBytes() }
                 if (code == 401) prepared.remove(key)
-            } finally { c.disconnect() }
+            }
         } catch (e: Exception) { prepared.remove(key); Log.w(TAG, "prepareStream failed: ${e.javaClass.simpleName}") }
     }
 
@@ -318,7 +319,7 @@ class SeerrClient(platform: Platform) {
 
     private fun get(path: String): String? = try {
         val c = open("GET", base + path)
-        try { if (c.responseCode == 200) c.inputStream.bufferedReader().use { it.readText() } else { if (c.responseCode == 401) signOut(); null } } finally { c.disconnect() }
+        c.exchange { if (c.responseCode == 200) c.inputStream.bufferedReader().use { it.readText() } else { if (c.responseCode == 401) signOut(); null } }
     } catch (_: Exception) { null }
 
     private fun open(method: String, url: String, withCookie: Boolean = true): HttpURLConnection {
