@@ -483,7 +483,8 @@ class MoviesPanel(
         listOfNotNull<View>(top, frost).forEach { v ->
             v.layoutParams = (v.layoutParams as FrameLayout.LayoutParams).apply { width = railWidth(); setMargins(edge, edge, 0, edge) }
         }
-        frost?.radiusPx = if (on) 0f else 46f
+        frost?.squareLeft = on
+        frost?.opaque = on
         brand.setPadding(Cinema.px(activity, 18) + inset, 0, 0, 0)
         storageView.setPadding(Cinema.px(activity, 30) + inset, Cinema.px(activity, 8), Cinema.px(activity, 20), 0)
         tabs.keys.forEach { item ->

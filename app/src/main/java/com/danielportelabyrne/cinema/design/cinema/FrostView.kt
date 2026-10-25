@@ -28,6 +28,12 @@ import com.danielportelabyrne.cinema.design.Cinema
 class FrostView(context: Context, private val sources: List<View>, radiusPx: Float) : View(context) {
     var radiusPx: Float = radiusPx
         set(value) { field = value; invalidateOutline() }
+    /** Square left corners, flush with the screen edge. */
+    var squareLeft = false
+        set(value) { field = value; invalidateOutline() }
+    /** Solid tint, no blur. */
+    var opaque = false
+        set(value) { field = value; if (!value) refresh(); invalidate() }
     private val node: RenderNode? = if (Build.VERSION.SDK_INT >= 31) RenderNode("frost").apply {
         setRenderEffect(RenderEffect.createBlurEffect(Cinema.pxf(context, 44) * SCALE, Cinema.pxf(context, 44) * SCALE, Shader.TileMode.CLAMP))
     } else null
@@ -46,7 +52,11 @@ class FrostView(context: Context, private val sources: List<View>, radiusPx: Flo
     init {
         isFocusable = false; isClickable = false; importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
         outlineProvider = object : ViewOutlineProvider() {
-            override fun getOutline(v: View, o: Outline) { o.setRoundRect(0, 0, v.width, v.height, Cinema.pxf(context, radiusPx)) }
+            override fun getOutline(v: View, o: Outline) {
+                val r = Cinema.pxf(context, this@FrostView.radiusPx)
+                // Rounding past the left edge leaves those corners square.
+                o.setRoundRect(if (squareLeft) -r.toInt() else 0, 0, v.width, v.height, r)
+            }
         }
         clipToOutline = true
     }
@@ -56,6 +66,7 @@ class FrostView(context: Context, private val sources: List<View>, radiusPx: Flo
      * keep taking them for [forMs] while something beneath animates. The last one always lands after the movement.
      */
     fun refresh(forMs: Long = 0L) {
+        if (opaque) return
         if (node == null) { invalidate(); return }
         val now = SystemClock.uptimeMillis()
         settleUntil = maxOf(settleUntil, now + forMs)
@@ -140,6 +151,7 @@ class FrostView(context: Context, private val sources: List<View>, radiusPx: Flo
     }
 
     override fun onDraw(canvas: Canvas) {
+        if (opaque) { fill.color = Cinema.alpha(tint, 1f); canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), fill); return }
         val n = node
         val blurred = n != null && hasSnap && canvas.isHardwareAccelerated
         if (blurred && Build.VERSION.SDK_INT >= 31) {
