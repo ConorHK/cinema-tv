@@ -1,5 +1,6 @@
 package com.danielportelabyrne.cinema.desktop.ui
 
+import com.danielportelabyrne.cinema.data.exchange
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -64,7 +65,7 @@ class CachedImages(private val headersFor: (String) -> Map<String, String>, priv
         c.connectTimeout = 6000; c.readTimeout = 15000
         headersFor(url).forEach { (k, v) -> c.setRequestProperty(k, v) }
         c.setRequestProperty("User-Agent", "Mozilla/5.0 (X11; Linux x86_64) Cinema/1.0")
-        try { if (c.responseCode == 200) c.inputStream.use { it.readBytes() } else null } finally { c.disconnect() }
+        c.exchange { if (c.responseCode == 200) c.inputStream.use { it.readBytes() } else null }
     } catch (_: Exception) { null }
 
     private fun decode(bytes: ByteArray): ImageBitmap? = try {

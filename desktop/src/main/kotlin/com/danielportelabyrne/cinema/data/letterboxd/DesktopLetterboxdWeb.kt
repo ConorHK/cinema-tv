@@ -1,5 +1,6 @@
 package com.danielportelabyrne.cinema.data.letterboxd
 
+import com.danielportelabyrne.cinema.data.exchange
 import com.danielportelabyrne.cinema.platform.Log
 import java.io.File
 import java.net.HttpURLConnection
@@ -33,12 +34,12 @@ class LetterboxdWeb(private val allowBrowser: Boolean = true) {
         c.setRequestProperty("User-Agent", USER_AGENT)
         c.setRequestProperty("Accept", if (acceptJson) "application/json" else "text/html")
         c.setRequestProperty("Accept-Language", "en-GB,en;q=0.9")
-        try {
+        c.exchange {
             when (c.responseCode) {
                 200 -> c.inputStream.bufferedReader().use { it.readText() }.takeUnless { isChallenge(it) }
                 else -> null
             }
-        } finally { c.disconnect() }
+        }
     } catch (e: Exception) { Log.w(TAG, "Page request failed: ${e.javaClass.simpleName}"); null }
 
     private fun viaBrowser(url: String): String? {

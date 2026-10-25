@@ -1,5 +1,6 @@
 package com.danielportelabyrne.cinema.ui
 
+import com.danielportelabyrne.cinema.data.exchange
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -89,10 +90,10 @@ class RemoteImages private constructor(context: Context) {
             val c = URL(url).openConnection() as HttpURLConnection
             c.connectTimeout = 8000; c.readTimeout = 12000
             headers.forEach { (k, v) -> c.setRequestProperty(k, v) }
-            try {
+            c.exchange {
                 val code = c.responseCode
                 if (code != 200) { Perf.mark("image ${url.substringBefore('?')} -> HTTP $code"); null } else c.inputStream.use { it.readBytes() }
-            } finally { c.disconnect() }
+            }
         } catch (e: Exception) { Perf.mark("image ${url.substringBefore('?')} failed: ${e.javaClass.simpleName}"); null }
 
         /**

@@ -178,6 +178,7 @@ class MoviesPanel(
     private val shelfPool = Executors.newFixedThreadPool(3)
     /** Calls that can take a minute or more (a stream start, the Downloads refresh, deletes): each gets its own thread. */
     private val slowPool = Executors.newCachedThreadPool()
+    private val storagePool = Executors.newSingleThreadExecutor { r -> Thread(r, "storage").apply { priority = Thread.MIN_PRIORITY; isDaemon = true } }
     private val images = RemoteImages.shared(activity)
     /** Groups this page's picture requests, so a rebuilt page drops the ones the old page still had queued. */
     private var pageTag = Any()
@@ -197,6 +198,7 @@ class MoviesPanel(
     private var searchPending: Runnable? = null
 
     init {
+        jellyfin.onLibraryChanged = { ui.post { rebadge(generation) } }
         // A few seconds after the app starts, read Home's first shelves into memory (from disk; the network only
         // when there is no copy yet), so the first open of Movies does not pay for reading and parsing them.
         ui.postDelayed({
@@ -706,7 +708,16 @@ class MoviesPanel(
      */
     private fun prefetchOnRest(card: View, e: Entry) {
         restPrefetch?.let { ui.removeCallbacks(it) }
-        restPrefetch = Runnable { if (card.hasFocus() || card.isFocused) prefetchBackdrop(e) }.also { ui.postDelayed(it, REST_PREFETCH_MS) }
+        restPrefetch = Runnable { if (card.hasFocus() || card.isFocused) { prefetchBackdrop(e); prefetchPage(e) } }.also { ui.postDelayed(it, REST_PREFETCH_MS) }
+    }
+
+    private fun prefetchPage(e: Entry) {
+        val tmdb = e.title.tmdbId?.toLongOrNull() ?: return
+        if (!seerr.isSignedIn) return
+        slowPool.execute {
+            seerr.warm(e.title.kind, tmdb)
+            if (e.title.kind == Kind.SHOW) sonarr.warm(tmdb)
+        }
     }
 
     /**
@@ -1838,7 +1849,7 @@ class MoviesPanel(
                     }
                     if (firstLoad) { firstLoad = false; (0 until holder.childCount).map { holder.getChildAt(it) }.firstOrNull { it.isFocusable }?.let { requestFocusRobust(overlay as ViewGroup, it) } }
                     else focused?.let { holder.getChildAt(it)?.requestFocus() }
-                    loadStorage()
+                    loadStorage(force = true)
                     // Progress moves, so look again every little while for as long as this page is the one on screen.
                     scheduled = Runnable { if (gen == generation && current == Dest.Downloads && !detailOpen) refresh() }
                     ui.postDelayed(scheduled!!, 15_000)
@@ -1875,7 +1886,7 @@ class MoviesPanel(
                         }
                         Toast.makeText(activity, message, Toast.LENGTH_LONG).show()
                         if (removed && detailOpen) { closeDetail(restoreFocus = true); build() }
-                        loadStorage()
+                        loadStorage(force = true)
                     }
                 }
             },
@@ -2120,12 +2131,23 @@ class MoviesPanel(
     // --- Storage -----------------------------------------------------------------------------------
 
     /** Storage information is visible in the expanded menu, without crowding the collapsed icon rail. */
-    private fun loadStorage() {
-        worker.execute {
+    private val storagePrefs by lazy { activity.getSharedPreferences("storage", Context.MODE_PRIVATE) }
+
+    private fun showStorage(text: String) {
+        storageView.text = text
+        storageView.visibility = if (navigationExpanded && text.isNotEmpty()) View.VISIBLE else View.GONE
+    }
+
+    private fun loadStorage(force: Boolean = false) {
+        val saved = storagePrefs.getString("text", null)
+        saved?.let { showStorage(it) }
+        if (!force && saved != null && System.currentTimeMillis() - storagePrefs.getLong("at", 0L) < STORAGE_TTL_MS) return
+        storagePool.execute {
             val used = jellyfin.takeIf { it.isConnected }?.libraryBytes()
             val free = seerr.takeIf { it.isSignedIn }?.freeSpaceBytes()
-            val lines = listOfNotNull(used?.let { "${ByteSize.format(it)} in library" }, free?.let { "${ByteSize.format(it)} free" })
-            activity.runOnUiThread { storageView.text = lines.joinToString("\n"); storageView.visibility = if (navigationExpanded && lines.isNotEmpty()) View.VISIBLE else View.GONE }
+            val text = listOfNotNull(used?.let { "${ByteSize.format(it)} in library" }, free?.let { "${ByteSize.format(it)} free" }).joinToString("\n")
+            if (text.isNotEmpty()) storagePrefs.edit().putString("text", text).putLong("at", System.currentTimeMillis()).apply()
+            activity.runOnUiThread { if (text.isNotEmpty() || saved == null) showStorage(text) }
         }
     }
 
@@ -3445,6 +3467,7 @@ class MoviesPanel(
         const val EAGER_POSTERS = 9
         const val LB_ROW_LIMIT = 40     // a Letterboxd row shows at most this many; the page itself holds more      // a screen and a half of posters per row; the rest load as the row scrolls
         const val HERO_BACKDROP_PX = 1920
+        const val STORAGE_TTL_MS = 60 * 60_000L
         const val REST_PREFETCH_MS = 350L   // how long focus rests on a poster before its backdrop is fetched
         const val RETURN_REFRESH_DELAY_MS = 1_500L
         const val EAGER_SHELVES = 2

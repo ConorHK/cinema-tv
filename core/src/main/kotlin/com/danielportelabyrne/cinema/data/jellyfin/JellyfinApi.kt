@@ -127,10 +127,23 @@ object JellyfinApi {
         "$base/Items?userId=${enc(userId)}&Recursive=true&IncludeItemTypes=Movie,Episode&Fields=MediaSources&Limit=20000"
 
     /** The total size of the first file of each item, in bytes. */
-    fun parseTotalBytes(json: String): Long = try {
-        val items = JSONObject(json).optJSONArray("Items")
-        (0 until (items?.length() ?: 0)).sumOf { items!!.getJSONObject(it).optJSONArray("MediaSources")?.optJSONObject(0)?.optLong("Size", 0L) ?: 0L }
-    } catch (_: Exception) { 0L }
+    fun parseTotalBytes(json: String): Long {
+        val sources = "\"MediaSources\":["
+        var total = 0L
+        var at = json.indexOf(sources)
+        while (at >= 0) {
+            val next = json.indexOf(sources, at + 1)
+            val size = json.indexOf("\"Size\":", at)
+            if (size >= 0 && (next < 0 || size < next)) {
+                var i = size + 7
+                val start = i
+                while (i < json.length && json[i].isDigit()) i++
+                if (i > start) total += json.substring(start, i).toLongOrNull() ?: 0L
+            }
+            at = next
+        }
+        return total
+    }
 
     /** Every episode of a series the signed-in user can see, with their watch state. */
     fun episodesUrl(base: String, userId: String, seriesId: String): String =
