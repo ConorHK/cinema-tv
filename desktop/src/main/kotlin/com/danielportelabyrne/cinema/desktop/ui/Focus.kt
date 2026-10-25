@@ -24,6 +24,9 @@ class FocusHub {
     private var alt: (() -> Unit)? = null
     private var owner: Any? = null
 
+    /** True while some element has focus. */
+    val hasFocus: Boolean get() = owner != null
+
     fun focused(owner: Any, select: () -> Unit, alt: (() -> Unit)?) { this.owner = owner; this.select = select; this.alt = alt }
     fun blurred(owner: Any) { if (this.owner === owner) { this.owner = null; select = null; alt = null } }
 

@@ -45,6 +45,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
@@ -111,6 +112,9 @@ fun BrowseScreen(model: CinemaModel, art: Art) {
 @Composable
 fun Rail(model: CinemaModel) {
     val open = model.railOpen
+    LaunchedEffect(model.railWanted) {
+        if (model.railWanted) { focusSoon({ model.railFocus.getValue(model.page.rail).tryFocus() }); model.railWanted = false }
+    }
     Box(
         Modifier.padding(start = 32.dp, top = 32.dp, bottom = 32.dp).width(if (open) 420.dp else 92.dp).fillMaxHeight()
             .clip(RoundedCornerShape(46.dp)).background(if (open) Cin.RAIL_FILL_OPEN else Cin.RAIL_FILL)
@@ -138,6 +142,7 @@ private fun RailItem(model: CinemaModel, d: Dest) {
     Box(Modifier.padding(top = 12.dp).fillMaxWidth().height(64.dp)) {
         Row(
             Modifier.fillMaxSize().background(if (focused) Cin.CREAM else Color.Transparent)
+                .focusProperties { canFocus = model.railOpen }
                 .onFocusChanged { focused = it.isFocused }
                 .tvFocusable(model.railFocus.getValue(d)) { model.goRail(d) }
                 .padding(horizontal = 14.dp),
