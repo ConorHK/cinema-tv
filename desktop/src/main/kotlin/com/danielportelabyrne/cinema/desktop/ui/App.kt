@@ -112,7 +112,6 @@ class Dispatcher(private val model: CinemaModel, val hub: FocusHub) {
         if (model.player.active) { model.player.handle(action); return }
         model.keyboard?.let { req ->
             if (action == NavAction.BACK) { model.keyboard = null; return }
-            if (keyboardShortcut(action, req) { req.onDone(req.text) }) return
         }
         // The stream loading screen has nothing to select: only Back, which cancels.
         if (model.streamLoading != null) { if (action == NavAction.BACK) model.back(); return }
