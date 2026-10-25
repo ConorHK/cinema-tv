@@ -195,6 +195,7 @@ class MoviesPanel(
     private var searchPending: Runnable? = null
 
     init {
+        jellyfin.onLibraryChanged = { ui.post { rebadge(generation) } }
         // A few seconds after the app starts, read Home's first shelves into memory (from disk; the network only
         // when there is no copy yet), so the first open of Movies does not pay for reading and parsing them.
         ui.postDelayed({
