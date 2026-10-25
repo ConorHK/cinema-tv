@@ -8,6 +8,7 @@ import android.animation.ValueAnimator
 import android.graphics.drawable.Drawable
 import android.provider.Settings.Global
 import android.view.View
+import android.view.animation.Interpolator
 import android.view.animation.OvershootInterpolator
 import android.view.animation.PathInterpolator
 import android.widget.HorizontalScrollView
@@ -54,19 +55,34 @@ object Motion {
 
     // ---- panning -----------------------------------------------------------------------------------
 
-    fun scrollVerticalTo(sv: ScrollView, target: Int) {
+    /** Focus glides: they start at full speed, then settle. */
+    private const val GLIDE_MS = 220L
+
+    fun scrollVerticalTo(sv: ScrollView, target: Int) = panVertically(sv, target, null, SWOOSH)
+
+    fun scrollHorizontalTo(sv: HorizontalScrollView, target: Int) = panHorizontally(sv, target, null, SWOOSH)
+
+    /** Follows a D-pad press: moves on the very first frame. */
+    fun glideVerticalTo(sv: ScrollView, target: Int) = panVertically(sv, target, GLIDE_MS, SETTLE)
+
+    fun glideHorizontalTo(sv: HorizontalScrollView, target: Int) = panHorizontally(sv, target, GLIDE_MS, SETTLE)
+
+    private fun panVertically(sv: ScrollView, target: Int, ms: Long?, curve: Interpolator) {
         val content = sv.getChildAt(0) ?: return
         val max = max(0, content.height - (sv.height - sv.paddingTop - sv.paddingBottom))
-        pan(sv, target.coerceIn(0, max), sv.scrollY) { sv.scrollTo(sv.scrollX, it) }
+        pan(sv, target.coerceIn(0, max), sv.scrollY, ms, curve) { sv.scrollTo(sv.scrollX, it) }
     }
 
-    fun scrollHorizontalTo(sv: HorizontalScrollView, target: Int) {
+    private fun panHorizontally(sv: HorizontalScrollView, target: Int, ms: Long?, curve: Interpolator) {
         val content = sv.getChildAt(0) ?: return
         val max = max(0, content.width - (sv.width - sv.paddingLeft - sv.paddingRight))
-        pan(sv, target.coerceIn(0, max), sv.scrollX) { sv.scrollTo(it, sv.scrollY) }
+        pan(sv, target.coerceIn(0, max), sv.scrollX, ms, curve) { sv.scrollTo(it, sv.scrollY) }
     }
 
-    private fun pan(view: View, to: Int, from: Int, apply: (Int) -> Unit) {
+    /** Where a running pan on [view] will stop, or null. */
+    fun panTarget(view: View): Int? = (view.getTag(R.id.motion_pan) as? Running)?.takeIf { it.animator.isRunning }?.target
+
+    private fun pan(view: View, to: Int, from: Int, ms: Long?, curve: Interpolator, apply: (Int) -> Unit) {
         val running = view.getTag(R.id.motion_pan) as? Running
         if (running != null && running.target == to && running.animator.isRunning) return
         running?.animator?.cancel()
@@ -74,8 +90,8 @@ object Motion {
         if (!animationsOn(view)) { apply(to); return }
         // Restart from where the view is right now, so quick D-pad presses glide on instead of jerking.
         val animator = ValueAnimator.ofInt(from, to).apply {
-            duration = panDuration(to - from)
-            interpolator = SWOOSH
+            duration = ms ?: panDuration(to - from)
+            interpolator = curve
             addUpdateListener { apply(it.animatedValue as Int) }
         }
         view.setTag(R.id.motion_pan, Running(animator, to))
