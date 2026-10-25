@@ -1,5 +1,6 @@
 package com.danielportelabyrne.cinema.ui.setup
 
+import com.danielportelabyrne.cinema.device.AndroidPlatform
 import android.app.Activity
 import android.graphics.drawable.GradientDrawable
 import android.os.Handler
@@ -27,6 +28,7 @@ import com.danielportelabyrne.cinema.data.settings.Arr
 import com.danielportelabyrne.cinema.data.settings.CinemaSettings
 import com.danielportelabyrne.cinema.data.settings.LibraryOrder
 import com.danielportelabyrne.cinema.data.settings.ManualArr
+import com.danielportelabyrne.cinema.data.settings.Preset
 import com.danielportelabyrne.cinema.design.Cinema
 import com.danielportelabyrne.cinema.design.cinema.CinemaButton
 import com.danielportelabyrne.cinema.ui.room.DownloadClientSignInSheet
@@ -55,7 +57,7 @@ class SetupFlow(
 ) {
     private val ui = Handler(Looper.getMainLooper())
     private val pool = Executors.newCachedThreadPool()
-    private val queue by lazy { QueueClient(seerr, activity) }
+    private val queue by lazy { QueueClient(seerr, AndroidPlatform(activity), Preset.load(activity)?.clients.orEmpty()) }
     private var settingsMode = false
     private var changed = false
     /** Bumped every time a page is drawn, so a late network answer never paints over the page that replaced it. */

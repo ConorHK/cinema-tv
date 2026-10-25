@@ -1,0 +1,132 @@
+# Cinema for Linux and the Steam Deck.
+#
+# Build the app first (on any machine with JDK 17; see flatpak/README.md):
+#   ./gradlew :desktop:linuxBundle -Pcinema.linux=true
+# then, on Linux:
+#   flatpak run org.flatpak.Builder --user --install --force-clean build-dir flatpak/io.github.danielportelabyrne.Cinema.yml
+#
+# Video plays in mpv, built here against the runtime's FFmpeg. Flathub's codecs-extra extension (installed with the
+# runtime, as on every Steam Deck) adds the codecs the plain runtime leaves out: H.264, HEVC, AC-3, E-AC-3, DTS...
+app-id: io.github.danielportelabyrne.Cinema
+runtime: org.freedesktop.Platform
+runtime-version: '25.08'
+sdk: org.freedesktop.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.openjdk17
+command: cinema
+
+finish-args:
+  - --share=network            # Jellyfin, Seerr and the rest
+  - --share=ipc
+  - --socket=x11               # the app window (Java's AWT) and mpv in Steam's Game Mode
+  - --socket=wayland           # mpv on a Wayland desktop
+  - --socket=pulseaudio
+  - --device=all               # the GPU, and game controllers (/dev/input, hidraw for the Deck's own controls)
+  - --env=JAVA_HOME=/app/jre
+  - --talk-name=org.freedesktop.ScreenSaver   # keep the screen awake during a film
+
+cleanup:
+  - /include
+  - /lib/pkgconfig
+  - /share/man
+  - '*.a'
+  - '*.la'
+
+modules:
+  - name: libass
+    config-opts:
+      - --disable-static
+      - --disable-require-system-font-provider
+    sources:
+      - type: git
+        url: https://github.com/libass/libass.git
+        tag: 0.17.5
+        commit: 4a05d8127f525943ebf45fdc6497c9e665947f0d
+
+  - name: libplacebo
+    buildsystem: meson
+    config-opts:
+      - -Dvulkan=disabled
+      - -Dopengl=enabled
+      - -Dshaderc=disabled
+      - -Dglslang=disabled
+      - -Dlcms=disabled
+      - -Ddemos=false
+      - -Dtests=false
+    sources:
+      - type: git
+        url: https://github.com/haasn/libplacebo.git
+        tag: v7.360.1
+        commit: cee9b076f2c63104ccfd497fa79c39a867293ec4
+
+  # mpv's X11 output needs it and the runtime leaves it out.
+  - name: libXpresent
+    config-opts:
+      - --disable-static
+    sources:
+      - type: archive
+        url: https://www.x.org/releases/individual/lib/libXpresent-1.0.1.tar.xz
+        sha256: b964df9e5a066daa5e08d2dc82692c57ca27d00b8cc257e8e960c9f1cf26231b
+
+  - name: mpv
+    buildsystem: meson
+    config-opts:
+      - -Dlibmpv=false
+      - -Dcplayer=true
+      - -Dlua=disabled
+      - -Djavascript=disabled
+      - -Dmanpage-build=disabled
+      - -Dhtml-build=disabled
+      - -Dpdf-build=disabled
+      - -Dtests=false
+      - -Dx11=enabled
+      - -Dgl-x11=disabled
+      - -Degl-x11=enabled
+      - -Dwayland=enabled
+      - -Degl-wayland=enabled
+      - -Dvaapi=enabled
+      - -Dvaapi-x11=enabled
+      - -Dvaapi-wayland=enabled
+      - -Dpipewire=enabled
+      - -Dpulse=enabled
+      - -Dvulkan=disabled
+      - -Dshaderc=disabled
+      - -Dspirv-cross=disabled
+      - -Dsdl2-gamepad=disabled
+      - -Dsdl2-audio=disabled
+      - -Dsdl2-video=disabled
+      - -Dcdda=disabled
+      - -Ddvdnav=disabled
+      - -Dlibbluray=disabled
+      - -Dlibarchive=disabled
+      - -Duchardet=disabled
+      - -Dzimg=disabled
+      - -Drubberband=disabled
+      - -Dvapoursynth=disabled
+    sources:
+      - type: git
+        url: https://github.com/mpv-player/mpv.git
+        tag: v0.41.0
+        commit: 41f6a645068483470267271e1d09966ca3b9f413
+
+  - name: cinema
+    buildsystem: simple
+    build-commands:
+      - /usr/lib/sdk/openjdk17/install.sh          # a private Java runtime in /app/jre
+      - install -d /app/lib/cinema
+      - cp -a lib/. /app/lib/cinema/
+      - install -Dm755 cinema.sh /app/bin/cinema
+      - install -Dm644 io.github.danielportelabyrne.Cinema.desktop -t /app/share/applications
+      - install -Dm644 io.github.danielportelabyrne.Cinema.metainfo.xml -t /app/share/metainfo
+      - install -Dm644 icon.svg /app/share/icons/hicolor/scalable/apps/io.github.danielportelabyrne.Cinema.svg
+    sources:
+      - type: dir
+        path: ../desktop/build/linux
+      - type: file
+        path: cinema.sh
+      - type: file
+        path: io.github.danielportelabyrne.Cinema.desktop
+      - type: file
+        path: io.github.danielportelabyrne.Cinema.metainfo.xml
+      - type: file
+        path: icon.svg

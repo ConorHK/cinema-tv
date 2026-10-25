@@ -1140,9 +1140,24 @@
    "jar": "sha256-ew8ZckCCy/y8ZuWr6iubySzwih6hHhkZM+1DgB6zzQU=",
    "pom": "sha256-yUkPZVEyMo3yz7z990P1P8ORbWwdEENxdabKbjpndxw="
   },
+  "org/jetbrains/compose#compose-gradle-plugin/1.8.2": {
+   "jar": "sha256-UH40rAQBaX9OzhLQK7gudeUJ3HR5c16+8RVt54oLwxg=",
+   "module": "sha256-vY+iV7J9qyYYKxqoh+LyaaRS1RZY8Vy993UdypVDv3M=",
+   "pom": "sha256-q0c87cveojErZ8Qjn9SLN1Fj9EK5nqCP89twiGc9tEM="
+  },
+  "org/jetbrains/compose#org.jetbrains.compose.gradle.plugin/1.8.2": {
+   "pom": "sha256-bQoxnNjopvxZDwX7NdktuvNt+J58L+fnEXPAj9ZMTOo="
+  },
   "org/jetbrains/intellij/deps#trove4j/1.0.20200330": {
    "jar": "sha256-xf1yW/+rUYRr88d9sTg8YKquv+G3/i8A0j/ht98KQ50=",
    "pom": "sha256-h3IcuqZaPJfYsbqdIHhA8WTJ/jh1n8nqEP/iZWX40+k="
+  },
+  "org/jetbrains/kotlin#compose-compiler-gradle-plugin/2.1.20": {
+   "module": "sha256-LBPSZp00NWUMcd8t8VDbTl8QAZKj6B6XnnUrTeCVcxA=",
+   "pom": "sha256-AudGCweKYIs9brqmIBbZi5cSPtITgU7QorGL2r2+UzU="
+  },
+  "org/jetbrains/kotlin#compose-compiler-gradle-plugin/2.1.20/gradle85": {
+   "jar": "sha256-CpCRRspmOsVVe9Gcwyum7Cbk6Wf11fDpU8iImxe3n3g="
   },
   "org/jetbrains/kotlin#fus-statistics-gradle-plugin/2.1.20": {
    "module": "sha256-6NVkojvCA3s++xxbAP+3SuRPmXJFd+L8jYf/u8nLn7U=",
@@ -1311,6 +1326,12 @@
   "org/jetbrains/kotlin/android#org.jetbrains.kotlin.android.gradle.plugin/2.1.20": {
    "pom": "sha256-JXvkhPBq8+oCGByVbB80qE+Jk8qYaJcnCm9kyYJwy4I="
   },
+  "org/jetbrains/kotlin/jvm#org.jetbrains.kotlin.jvm.gradle.plugin/2.1.20": {
+   "pom": "sha256-XMuQWnlnFyGMG7Tu2Lsx/GdMWAPN1UwjdT6tOA96EbU="
+  },
+  "org/jetbrains/kotlin/plugin/compose#org.jetbrains.kotlin.plugin.compose.gradle.plugin/2.1.20": {
+   "pom": "sha256-XPGdlQfJ8YWYtTgDghmQ1t81fi7Kg+MYceTVAJISz/c="
+  },
   "org/jetbrains/kotlinx#kotlinx-coroutines-android/1.6.4": {
    "jar": "sha256-P9wO7VvEuD7pYid0UgotslRwNw6s0VgcrB43cE8JWwA=",
    "module": "sha256-aFFlWeb4SmIbl4PNiSpkYwzNeHWENYjds/BQFCXjPxU=",
@@ -1347,6 +1368,10 @@
   "org/jetbrains/kotlinx#kotlinx-coroutines-core/1.9.0": {
    "module": "sha256-rVNANKlTtOEsvuuHTGat+LHKFN8V/g0uZUeqNOht/so=",
    "pom": "sha256-dw8nk9BeKwJ7nHmZOOwdLU7xQc5YGceAwyw5lcrbCkc="
+  },
+  "org/json#json/20231013": {
+   "jar": "sha256-DxgZLfKJEU4XqhoNCn+DcsyfXH5Pfjmtz4kG/nFPp9M=",
+   "pom": "sha256-xQBAI9OfVGNbNbvrQOIaKtVR/KDy41Cxzje9DnyypGY="
   },
   "org/junit#junit-bom/5.10.2": {
    "module": "sha256-3iOxFLPkEZqP5usXvtWjhSgWaYus5nBxV51tkn67CAo=",

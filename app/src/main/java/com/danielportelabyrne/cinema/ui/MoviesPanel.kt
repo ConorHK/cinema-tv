@@ -1,5 +1,6 @@
 package com.danielportelabyrne.cinema.ui
 
+import com.danielportelabyrne.cinema.device.AndroidPlatform
 import android.app.Activity
 import android.content.Context
 import android.graphics.Bitmap
@@ -88,6 +89,7 @@ import com.danielportelabyrne.cinema.design.cinema.VoiceListeningView
 import com.danielportelabyrne.cinema.data.search.Qwerty
 import com.danielportelabyrne.cinema.data.search.VoiceState
 import com.danielportelabyrne.cinema.data.settings.LibraryOrder
+import com.danielportelabyrne.cinema.data.settings.Preset
 import com.danielportelabyrne.cinema.design.cinema.RibbonView
 import com.danielportelabyrne.cinema.design.cinema.StripeDrawable
 import com.danielportelabyrne.cinema.design.Type
@@ -180,8 +182,8 @@ class MoviesPanel(
     private val images = RemoteImages.shared(activity)
     /** Groups this page's picture requests, so a rebuilt page drops the ones the old page still had queued. */
     private var pageTag = Any()
-    private val catalog = CatalogRepository(activity)
-    private val picks by lazy { com.danielportelabyrne.cinema.data.movies.PicksRepository(activity, seerr, jellyfin, com.danielportelabyrne.cinema.data.movies.WatchHistory(activity)) }
+    private val catalog = CatalogRepository(AndroidPlatform(activity))
+    private val picks by lazy { com.danielportelabyrne.cinema.data.movies.PicksRepository(AndroidPlatform(activity), seerr, jellyfin, com.danielportelabyrne.cinema.data.movies.WatchHistory(AndroidPlatform(activity))) }
     private val ui = Handler(Looper.getMainLooper())
     @Volatile private var generation = 0
     private var current: Dest = Dest.Home
@@ -1196,7 +1198,8 @@ class MoviesPanel(
             else { card.avatar.set(r.authorName, null); r.avatar?.let { a -> images.load(a, maxWidth = 104, tag = pageTag) { b -> card.avatar.set(r.authorName, b) } } }
             card.setOnFocusChangeListener { v, f -> if (f) reveal(v) }
             card.setOnClickListener {
-                if (byFilm && r.film != null) lbOpen(r.film, null)
+                val reviewed = r.film
+                if (byFilm && reviewed != null) lbOpen(reviewed, null)
                 else infoSheet.show("REVIEW", r.authorName, listOfNotNull(r.rating?.let { com.danielportelabyrne.cinema.data.letterboxd.Lb.stars(it) }, lbDay(r.date)).joinToString(" · ").ifBlank { null }, listOf(r.text), null, listOf(SheetAction("Close") { }))
             }
             row.inner.addView(card, LinearLayout.LayoutParams(Cinema.px(activity, 540), Cinema.px(activity, 300)).apply { if (i > 0) marginStart = Cinema.px(activity, 32) })
@@ -1793,7 +1796,7 @@ class MoviesPanel(
         refresh()
     }
 
-    private val queueClient by lazy { QueueClient(seerr, activity) }
+    private val queueClient by lazy { QueueClient(seerr, AndroidPlatform(activity), Preset.load(activity)?.clients.orEmpty()) }
 
     private val libraryRemover by lazy { LibraryRemover(seerr) }
 

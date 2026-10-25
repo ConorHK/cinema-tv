@@ -7,7 +7,7 @@ Thanks for helping. Here is how to get a change in.
 - For anything bigger than a small fix, open an issue first saying what you want to change, so nobody builds the same thing twice.
 - Set up the project as described in the [README](README.md#building), and check that the tests pass:
   ```bash
-  ./gradlew testDebugUnitTest
+  ./gradlew :core:test testDebugUnitTest
   ```
 
 ## Making a change
@@ -18,8 +18,9 @@ Thanks for helping. Here is how to get a change in.
 4. Check it on a TV or the Android TV emulator, using only the remote's D-pad, Back and OK. Every screen must be fully usable without a touchscreen or mouse.
 5. Run the tests and a debug build before you push:
    ```bash
-   ./gradlew testDebugUnitTest assembleDebug
+   ./gradlew :core:test testDebugUnitTest assembleDebug
    ```
+   Code in `core/` is shared with the Linux desktop app, so it must not use Android classes. If you touch it, also run `./gradlew :desktop:test`. Tests for shared logic go in `core/src/test`.
 
 ## Rules the app keeps
 

@@ -43,6 +43,8 @@ stdenv.mkDerivation (finalAttrs: {
     root = ./..;
     fileset = lib.fileset.unions [
       ../app
+      ../core
+      ../desktop
       ../build.gradle.kts
       ../settings.gradle.kts
       ../gradle.properties

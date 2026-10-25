@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 56 56">
+  <!-- The Cinema mark (app/src/main/res/drawable/cinema_mark.xml): five rings, maroon to saffron, and a dark play triangle. -->
+  <circle cx="28" cy="28" r="27" fill="#6b1a10"/>
+  <circle cx="28" cy="28" r="22" fill="#c2281d"/>
+  <circle cx="28" cy="28" r="17" fill="#e2562b"/>
+  <circle cx="28" cy="28" r="12" fill="#f08a25"/>
+  <circle cx="28" cy="28" r="7.2" fill="#f6bf33"/>
+  <path d="M25.2 24.2v7.6a1 1 0 001.5.86l6.3-3.8a1 1 0 000-1.72l-6.3-3.8a1 1 0 00-1.5.86z" fill="#1b0d06"/>
+</svg>

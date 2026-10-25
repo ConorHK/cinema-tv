@@ -5,10 +5,8 @@ import android.util.Log
 import com.danielportelabyrne.cinema.data.jellyfin.JellyfinClient
 import com.danielportelabyrne.cinema.data.movies.ClientKind
 import com.danielportelabyrne.cinema.data.movies.SeerrClient
+import com.danielportelabyrne.cinema.device.AndroidPlatform
 import org.json.JSONObject
-
-/** A username and password from the preset. */
-data class PresetLogin(val username: String, val password: String)
 
 data class PresetServer(val url: String, val login: PresetLogin?)
 
@@ -33,8 +31,8 @@ data class Preset(
     fun applySettings(context: Context, settings: CinemaSettings) {
         val prefs = context.applicationContext.getSharedPreferences("cinema_settings", Context.MODE_PRIVATE)
         if (prefs.getString(APPLIED_KEY, null) == fingerprint) return
-        jellyfin?.let { JellyfinClient(context).setServer(it.url) }
-        seerr?.let { SeerrClient(context).setServer(it.url) }
+        jellyfin?.let { JellyfinClient(AndroidPlatform(context)).setServer(it.url) }
+        seerr?.let { SeerrClient(AndroidPlatform(context)).setServer(it.url) }
         sonarr?.let { settings.setManualArr(Arr.SONARR, it) }
         radarr?.let { settings.setManualArr(Arr.RADARR, it) }
         region?.let { settings.region = it }
