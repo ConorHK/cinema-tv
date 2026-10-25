@@ -4,6 +4,9 @@
   androidenv,
   gradle-packages,
   jdk17,
+  writeText,
+  # Optional: a JSON file, or an attrset turned into one. Baked into the APK.
+  preset ? null,
 }:
 let
   # AGP 8.12 default.
@@ -17,6 +20,12 @@ let
     includeNDK = false;
   };
   sdk = "${android.androidsdk}/libexec/android-sdk";
+
+  presetFile =
+    if builtins.isAttrs preset && !lib.isDerivation preset then
+      writeText "cinema-preset.json" (builtins.toJSON preset)
+    else
+      preset;
 
   # Matches the wrapper; AGP 8.12 breaks on Gradle 9.6+.
   gradle =
@@ -64,7 +73,8 @@ stdenv.mkDerivation (finalAttrs: {
     "-Dorg.gradle.java.home=${jdk17.home}"
     # Maven's aapt2 is dynamically linked and fails on NixOS.
     "-Pandroid.aapt2FromMavenOverride=${sdk}/build-tools/${buildToolsVersion}/aapt2"
-  ];
+  ]
+  ++ lib.optional (presetFile != null) "-Pcinema.preset=${presetFile}";
 
   installPhase = ''
     runHook preInstall

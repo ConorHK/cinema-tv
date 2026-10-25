@@ -86,6 +86,7 @@ object QueueApi {
 class QueueClient(private val seerr: SeerrClient, context: android.content.Context) {
     private val sessions = context.applicationContext.getSharedPreferences("qbit_sessions", android.content.Context.MODE_PRIVATE)
     private val settings = com.danielportelabyrne.cinema.data.settings.CinemaSettings(context)
+    private val preset = com.danielportelabyrne.cinema.data.settings.Preset.load(context)
     private var sonarr: SonarrConfig? = null
     private var radarr: SonarrConfig? = null
     private val torrentClients = HashMap<Pair<QueueSource, String?>, DownloadClient>()
@@ -104,7 +105,7 @@ class QueueClient(private val seerr: SeerrClient, context: android.content.Conte
     }
 
     private fun create(config: ClientConfig): DownloadClient =
-        DownloadClients.create(config, settings.clientUser(config.baseUrl), settings.clientPassword(config.baseUrl), sessions.getString(config.baseUrl, null)) { cookie ->
+        DownloadClients.create(config, savedUser(config), savedPassword(config), sessions.getString(config.baseUrl, null)) { cookie ->
             sessions.edit().putString(config.baseUrl, cookie).apply()
         }
 
@@ -126,7 +127,11 @@ class QueueClient(private val seerr: SeerrClient, context: android.content.Conte
     }
 
     /** True when the client needs a login typed in on the TV (Sonarr/Radarr hide its password) and none is saved yet. */
-    fun needsLogin(config: ClientConfig): Boolean = config.passwordHidden && settings.clientPassword(config.baseUrl) == null
+    fun needsLogin(config: ClientConfig): Boolean = config.passwordHidden && savedPassword(config) == null
+
+    /** A login typed in on this TV, else the preset's. */
+    private fun savedPassword(config: ClientConfig) = settings.clientPassword(config.baseUrl) ?: preset?.clients?.get(config.kind)?.password
+    private fun savedUser(config: ClientConfig) = settings.clientUser(config.baseUrl) ?: preset?.clients?.get(config.kind)?.username
 
     /** Tries a login for a client found during setup and keeps it (encrypted) when it works. */
     fun signIn(config: ClientConfig, username: String, password: String): Boolean {
