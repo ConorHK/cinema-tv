@@ -176,6 +176,7 @@ class MoviesPanel(
     private val shelfPool = Executors.newFixedThreadPool(3)
     /** Calls that can take a minute or more (a stream start, the Downloads refresh, deletes): each gets its own thread. */
     private val slowPool = Executors.newCachedThreadPool()
+    private val storagePool = Executors.newSingleThreadExecutor { r -> Thread(r, "storage").apply { priority = Thread.MIN_PRIORITY; isDaemon = true } }
     private val images = RemoteImages.shared(activity)
     /** Groups this page's picture requests, so a rebuilt page drops the ones the old page still had queued. */
     private var pageTag = Any()
@@ -2057,7 +2058,7 @@ class MoviesPanel(
         val saved = storagePrefs.getString("text", null)
         saved?.let { showStorage(it) }
         if (!force && saved != null && System.currentTimeMillis() - storagePrefs.getLong("at", 0L) < STORAGE_TTL_MS) return
-        worker.execute {
+        storagePool.execute {
             val used = jellyfin.takeIf { it.isConnected }?.libraryBytes()
             val free = seerr.takeIf { it.isSignedIn }?.freeSpaceBytes()
             val text = listOfNotNull(used?.let { "${ByteSize.format(it)} in library" }, free?.let { "${ByteSize.format(it)} free" }).joinToString("\n")
@@ -3337,7 +3338,7 @@ class MoviesPanel(
         const val EAGER_POSTERS = 9
         const val LB_ROW_LIMIT = 40     // a Letterboxd row shows at most this many; the page itself holds more      // a screen and a half of posters per row; the rest load as the row scrolls
         const val HERO_BACKDROP_PX = 1920
-        const val STORAGE_TTL_MS = 10 * 60_000L
+        const val STORAGE_TTL_MS = 60 * 60_000L
         const val REST_PREFETCH_MS = 350L   // how long focus rests on a poster before its backdrop is fetched
         const val RETURN_REFRESH_DELAY_MS = 1_500L
         const val EAGER_SHELVES = 2
