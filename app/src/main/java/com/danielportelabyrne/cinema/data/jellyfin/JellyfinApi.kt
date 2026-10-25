@@ -34,8 +34,15 @@ data class JellyfinItem(
     val sizeBytes: Long? = null,
     val communityRating: Double? = null,
     /** The default soundtrack's codec ("eac3", "aac"…), when the server listed the file's streams. */
-    val audioCodec: String? = null
+    val audioCodec: String? = null,
+    /** When it, or a series' newest episode, reached the server. */
+    val addedMs: Long? = null,
+    /** When the user last played it, or any episode of a series. */
+    val playedMs: Long? = null
 ) {
+    /** Whichever is newer: added or last watched. */
+    val recentMs: Long get() = maxOf(addedMs ?: 0L, playedMs ?: 0L)
+
     val isSeries: Boolean get() = type == "Series"
     val isEpisode: Boolean get() = type == "Episode"
 
@@ -88,7 +95,25 @@ object JellyfinApi {
      */
     fun libraryUrl(base: String, userId: String): String =
         "$base/Items?userId=${enc(userId)}&Recursive=true&IncludeItemTypes=Movie,Series&SortBy=DateCreated&SortOrder=Descending" +
-            "&Fields=ProviderIds,Overview,Genres,OfficialRating,RunTimeTicks&Limit=5000"
+            "&Fields=ProviderIds,Overview,Genres,OfficialRating,RunTimeTicks,DateCreated,DateLastMediaAdded&Limit=5000"
+
+    /** Films and episodes, last played first. Never-played items sort last. */
+    fun recentlyPlayedUrl(base: String, userId: String): String =
+        "$base/Items?userId=${enc(userId)}&Recursive=true&IncludeItemTypes=Movie,Episode&SortBy=DatePlayed&SortOrder=Descending&Limit=300"
+
+    /** Gives each film and series its latest play, an episode counting for its series. */
+    fun withPlays(library: List<JellyfinItem>, played: List<JellyfinItem>): List<JellyfinItem> {
+        val latest = HashMap<String, Long>()
+        played.forEach { p ->
+            val at = p.playedMs ?: return@forEach
+            val key = if (p.isEpisode) p.seriesId ?: return@forEach else p.id
+            if (at > (latest[key] ?: 0L)) latest[key] = at
+        }
+        return library.map { item ->
+            val at = latest[item.id]
+            if (at != null && at > (item.playedMs ?: 0L)) item.copy(playedMs = at) else item
+        }
+    }
 
     /** Where to pick up a series: the next unwatched episode, or the first one when nothing has been watched. */
     fun nextUpUrl(base: String, userId: String, seriesId: String): String =
@@ -294,9 +319,14 @@ object JellyfinApi {
             trickplay = com.danielportelabyrne.cinema.data.player.PlayerMath.parseTrickplay(o.optJSONObject("Trickplay"), source),
             sizeBytes = sources?.optJSONObject(0)?.optLong("Size", 0L)?.takeIf { it > 0 },
             communityRating = o.optDouble("CommunityRating", 0.0).takeIf { it > 0 },
-            audioCodec = defaultAudioCodec(sources?.optJSONObject(0))
+            audioCodec = defaultAudioCodec(sources?.optJSONObject(0)),
+            addedMs = dateOf(o, "DateLastMediaAdded") ?: dateOf(o, "DateCreated"),
+            playedMs = data?.let { dateOf(it, "LastPlayedDate") }
         )
     }
+
+    /** Missing, null and unreadable dates are all null. */
+    private fun dateOf(o: JSONObject, name: String): Long? = if (o.isNull(name)) null else utcMillis(o.optString(name))
 
     /** The codec of the source's default audio stream (or its first one), lower case; null when streams are not listed. */
     fun defaultAudioCodec(source: JSONObject?): String? {
