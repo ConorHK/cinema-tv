@@ -1,7 +1,6 @@
 package com.danielportelabyrne.cinema.data.movies
 
 import com.danielportelabyrne.cinema.data.jellyfin.Reachability
-import com.danielportelabyrne.cinema.data.settings.PresetLogin
 import com.danielportelabyrne.cinema.platform.Log
 import com.danielportelabyrne.cinema.platform.Platform
 import com.danielportelabyrne.cinema.ui.Perf
@@ -85,13 +84,10 @@ object QueueApi {
  * The live download queue, read from Sonarr and Radarr using the address and key Seerr already holds for them, and
  * the way to cancel an item. Every call blocks and none throw.
  */
-class QueueClient(
-    private val seerr: SeerrClient,
-    platform: Platform,
-    private val presetLogins: Map<ClientKind, PresetLogin> = emptyMap(),
-) {
+class QueueClient(private val seerr: SeerrClient, platform: Platform) {
     private val sessions = platform.preferences("qbit_sessions")
     private val settings = com.danielportelabyrne.cinema.data.settings.CinemaSettings(platform)
+    private val preset = com.danielportelabyrne.cinema.data.settings.Preset.load(platform)
     private var sonarr: SonarrConfig? = null
     private var radarr: SonarrConfig? = null
     private val torrentClients = HashMap<Pair<QueueSource, String?>, DownloadClient>()
@@ -135,8 +131,8 @@ class QueueClient(
     fun needsLogin(config: ClientConfig): Boolean = config.passwordHidden && savedPassword(config) == null
 
     /** A login typed in on this TV, else the preset's. */
-    private fun savedPassword(config: ClientConfig) = settings.clientPassword(config.baseUrl) ?: presetLogins[config.kind]?.password
-    private fun savedUser(config: ClientConfig) = settings.clientUser(config.baseUrl) ?: presetLogins[config.kind]?.username
+    private fun savedPassword(config: ClientConfig) = settings.clientPassword(config.baseUrl) ?: preset?.clients?.get(config.kind)?.password
+    private fun savedUser(config: ClientConfig) = settings.clientUser(config.baseUrl) ?: preset?.clients?.get(config.kind)?.username
 
     /** Tries a login for a client found during setup and keeps it (encrypted) when it works. */
     fun signIn(config: ClientConfig, username: String, password: String): Boolean {

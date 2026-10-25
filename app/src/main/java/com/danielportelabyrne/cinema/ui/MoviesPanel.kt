@@ -89,7 +89,6 @@ import com.danielportelabyrne.cinema.design.cinema.VoiceListeningView
 import com.danielportelabyrne.cinema.data.search.Qwerty
 import com.danielportelabyrne.cinema.data.search.VoiceState
 import com.danielportelabyrne.cinema.data.settings.LibraryOrder
-import com.danielportelabyrne.cinema.data.settings.Preset
 import com.danielportelabyrne.cinema.design.cinema.RibbonView
 import com.danielportelabyrne.cinema.design.cinema.StripeDrawable
 import com.danielportelabyrne.cinema.design.Type
@@ -1833,7 +1832,7 @@ class MoviesPanel(
         refresh()
     }
 
-    private val queueClient by lazy { QueueClient(seerr, AndroidPlatform(activity), Preset.load(activity)?.clients.orEmpty()) }
+    private val queueClient by lazy { QueueClient(seerr, AndroidPlatform(activity)) }
 
     private val libraryRemover by lazy { LibraryRemover(seerr) }
 

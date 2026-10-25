@@ -112,7 +112,6 @@ class Dispatcher(private val model: CinemaModel, val hub: FocusHub) {
         if (model.player.active) { model.player.handle(action); return }
         model.keyboard?.let { req ->
             if (action == NavAction.BACK) { model.keyboard = null; return }
-            if (keyboardShortcut(action, req) { req.onDone(req.text) }) return
         }
         // The stream loading screen has nothing to select: only Back, which cancels.
         if (model.streamLoading != null) { if (action == NavAction.BACK) model.back(); return }
@@ -140,9 +139,15 @@ class Dispatcher(private val model: CinemaModel, val hub: FocusHub) {
                 FocusDirection.Left -> return
             }
         }
+        // The menu is only reached by Left from the page's left edge. Up and Down never enter it, or a press at the
+        // bottom of a page would land on Settings, and Up from there could not get back to the page.
+        if (browse && !model.railOpen && direction == FocusDirection.Left) {
+            if (!focus.moveFocus(direction)) model.openRail()
+            return
+        }
         if (!focus.moveFocus(direction)) {
-            // Nothing focused yet (or focus fell off the screen): start from the screen's first element.
-            focus.moveFocus(FocusDirection.Enter)
+            // Nothing focused yet: start from the screen's first element. At an edge of the page the press does nothing.
+            if (!hub.hasFocus) focus.moveFocus(FocusDirection.Enter)
             return
         }
         // Arriving in the rail from the page lands on the page you are on, not the nearest icon.

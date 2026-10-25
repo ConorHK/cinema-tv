@@ -1,12 +1,14 @@
 package com.danielportelabyrne.cinema.data.settings
 
-import android.content.Context
-import android.util.Log
+import com.danielportelabyrne.cinema.platform.Log
+import com.danielportelabyrne.cinema.platform.Platform
 import com.danielportelabyrne.cinema.data.jellyfin.JellyfinClient
 import com.danielportelabyrne.cinema.data.movies.ClientKind
 import com.danielportelabyrne.cinema.data.movies.SeerrClient
-import com.danielportelabyrne.cinema.device.AndroidPlatform
 import org.json.JSONObject
+
+/** A username and password from the preset. */
+data class PresetLogin(val username: String, val password: String)
 
 data class PresetServer(val url: String, val login: PresetLogin?)
 
@@ -28,11 +30,11 @@ data class Preset(
     val fingerprint: String,
 ) {
     /** Writes the addresses and keys, once per preset. Cheap; safe on the main thread. */
-    fun applySettings(context: Context, settings: CinemaSettings) {
-        val prefs = context.applicationContext.getSharedPreferences("cinema_settings", Context.MODE_PRIVATE)
+    fun applySettings(platform: Platform, settings: CinemaSettings) {
+        val prefs = platform.preferences("cinema_settings")
         if (prefs.getString(APPLIED_KEY, null) == fingerprint) return
-        jellyfin?.let { JellyfinClient(AndroidPlatform(context)).setServer(it.url) }
-        seerr?.let { SeerrClient(AndroidPlatform(context)).setServer(it.url) }
+        jellyfin?.let { JellyfinClient(platform).setServer(it.url) }
+        seerr?.let { SeerrClient(platform).setServer(it.url) }
         sonarr?.let { settings.setManualArr(Arr.SONARR, it) }
         radarr?.let { settings.setManualArr(Arr.RADARR, it) }
         region?.let { settings.region = it }
@@ -66,12 +68,10 @@ data class Preset(
         @Volatile private var loaded = false
 
         /** The preset in this APK, or null when it was built without one. */
-        fun load(context: Context): Preset? {
+        fun load(platform: Platform): Preset? {
             if (loaded) return cached
             cached = try {
-                context.assets.open(ASSET).bufferedReader().use { parse(it.readText()) }
-            } catch (_: java.io.FileNotFoundException) {
-                null
+                platform.readAsset(ASSET)?.let { parse(it) }
             } catch (e: Exception) {
                 Log.w(TAG, "preset unreadable: ${e.javaClass.simpleName}"); null
             }

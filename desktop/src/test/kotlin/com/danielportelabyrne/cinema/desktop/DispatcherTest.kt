@@ -41,7 +41,7 @@ class DispatcherTest {
         assertEquals("", text)
     }
 
-    @Test fun aKeyboardSheetOwnsTextUntilItCloses() {
+    @Test fun nativeTextEntryReceivesKeyboardTextWithoutTypingBehindIt() {
         val model = model().apply { page = Page.LbFollow() }
         var underlying = ""
         model.typingTarget = { underlying += it }
@@ -49,6 +49,8 @@ class DispatcherTest {
         model.keyboard = request
         val dispatcher = Dispatcher(model, FocusHub())
         dispatcher.key(event(Key.A, 'a'))
+        dispatcher.key(event(Key.Spacebar, ' '))
+        dispatcher.key(event(Key.Backspace, '\b'))
         assertEquals("a", request.text)
         assertEquals("", underlying)
     }

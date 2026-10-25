@@ -37,8 +37,9 @@ class CinemaActivity : AppCompatActivity() {
         setContentView(R.layout.activity_cinema)
         overlay = findViewById(R.id.moviesOverlay)
         infoSheet = InfoSheet(findViewById(R.id.infoSheet))
-        val settings = CinemaSettings(AndroidPlatform(this))
-        val preset = Preset.load(this)?.also { it.applySettings(this, settings) }
+        val platform = AndroidPlatform(this)
+        val settings = CinemaSettings(platform)
+        val preset = Preset.load(platform)?.also { it.applySettings(platform, settings) }
         Catalog.country = settings.region
         val jellyfin = JellyfinClient(AndroidPlatform(this))
         val seerr = SeerrClient(AndroidPlatform(this))

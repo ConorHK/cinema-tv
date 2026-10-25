@@ -57,7 +57,7 @@ class SetupFlow(
 ) {
     private val ui = Handler(Looper.getMainLooper())
     private val pool = Executors.newCachedThreadPool()
-    private val queue by lazy { QueueClient(seerr, AndroidPlatform(activity), Preset.load(activity)?.clients.orEmpty()) }
+    private val queue by lazy { QueueClient(seerr, AndroidPlatform(activity)) }
     private var settingsMode = false
     private var changed = false
     /** Bumped every time a page is drawn, so a late network answer never paints over the page that replaced it. */

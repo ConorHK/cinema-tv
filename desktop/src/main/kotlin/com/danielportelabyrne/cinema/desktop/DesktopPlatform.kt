@@ -24,6 +24,9 @@ class DesktopPlatform(val root: File = AppDirs.data, private val cache: File = A
         return prefsFile(name).delete()
     }
 
+    /** The desktop app has no bundled preset. */
+    override fun readAsset(name: String): String? = null
+
     override fun secretStore(): SecretStore = DesktopSecretStore(preferences("secrets"), File(root, "secrets.key"))
 
     private fun prefsFile(name: String) = File(root, "prefs/$name.json")
