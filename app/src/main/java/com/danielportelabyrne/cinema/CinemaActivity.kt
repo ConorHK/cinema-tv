@@ -14,6 +14,7 @@ import com.danielportelabyrne.cinema.data.jellyfin.JellyfinClient
 import com.danielportelabyrne.cinema.data.movies.Catalog
 import com.danielportelabyrne.cinema.data.movies.SeerrClient
 import com.danielportelabyrne.cinema.data.settings.CinemaSettings
+import com.danielportelabyrne.cinema.data.settings.Preset
 import com.danielportelabyrne.cinema.ui.MoviesPanel
 import com.danielportelabyrne.cinema.ui.Perf
 import com.danielportelabyrne.cinema.ui.room.InfoSheet
@@ -36,7 +37,9 @@ class CinemaActivity : AppCompatActivity() {
         setContentView(R.layout.activity_cinema)
         overlay = findViewById(R.id.moviesOverlay)
         infoSheet = InfoSheet(findViewById(R.id.infoSheet))
-        val settings = CinemaSettings(AndroidPlatform(this))
+        val platform = AndroidPlatform(this)
+        val settings = CinemaSettings(platform)
+        val preset = Preset.load(platform)?.also { it.applySettings(platform, settings) }
         Catalog.country = settings.region
         val jellyfin = JellyfinClient(AndroidPlatform(this))
         val seerr = SeerrClient(AndroidPlatform(this))
@@ -74,9 +77,17 @@ class CinemaActivity : AppCompatActivity() {
             }
         })
 
-        // Nothing to show until there is a Jellyfin server: first run, or after Reset everything.
-        if (!settings.setupDone || !jellyfin.hasServer) setup.startFirstRun() else moviesPanel.show()
-        handleDebugIntent(intent)
+        val start = {
+            // Nothing to show until there is a Jellyfin server: first run, or after Reset everything.
+            if (!settings.setupDone || !jellyfin.hasServer) setup.startFirstRun() else moviesPanel.show()
+            handleDebugIntent(intent)
+        }
+        if (preset?.needsSignIn == true) {
+            Thread {
+                preset.signIn(jellyfin, seerr)
+                runOnUiThread { if (!isDestroyed) start() }
+            }.start()
+        } else start()
     }
 
     /** Where focus was in Cinema before a sign-in step opened over it, so it comes back to the same button. */

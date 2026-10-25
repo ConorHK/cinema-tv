@@ -19,6 +19,10 @@ class AndroidPlatform(context: Context) : Platform {
     override fun preferences(name: String): Preferences = AndroidPreferences(app.getSharedPreferences(name, Context.MODE_PRIVATE))
     override fun hasPreferences(name: String): Boolean = File(app.applicationInfo.dataDir, "shared_prefs/$name.xml").exists()
     override fun deletePreferences(name: String): Boolean = app.deleteSharedPreferences(name)
+    override fun readAsset(name: String): String? = try {
+        app.assets.open(name).bufferedReader().use { it.readText() }
+    } catch (_: java.io.FileNotFoundException) { null }
+
     override fun secretStore(): SecretStore = AndroidSecretStore(preferences("secrets"))
 }
 

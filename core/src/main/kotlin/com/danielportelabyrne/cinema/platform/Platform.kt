@@ -24,6 +24,9 @@ interface Platform {
 
     fun deletePreferences(name: String): Boolean
 
+    /** A file bundled with the app (the build's preset), or null when there is none. */
+    fun readAsset(name: String): String?
+
     /** Where passwords and API keys are kept, encrypted for this platform. */
     fun secretStore(): SecretStore
 }

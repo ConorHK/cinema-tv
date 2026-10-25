@@ -1,3 +1,4 @@
+import groovy.json.JsonSlurper
 import java.util.Properties
 
 plugins {
@@ -8,6 +9,38 @@ plugins {
 // Release signing comes from keystore.properties (never committed). Without it, release builds are unsigned.
 val keystoreProps = Properties().apply {
     rootProject.file("keystore.properties").takeIf { it.exists() }?.inputStream()?.use { load(it) }
+}
+
+// Optional setup baked into the APK. See README, "Building with a preset".
+val presetPath = providers.gradleProperty("cinema.preset").orElse(providers.environmentVariable("CINEMA_PRESET"))
+
+abstract class PresetAsset : DefaultTask() {
+    @get:InputFile @get:Optional abstract val preset: RegularFileProperty
+    @get:OutputDirectory abstract val outputDir: DirectoryProperty
+
+    @TaskAction fun copy() {
+        val out = outputDir.get().asFile.apply { deleteRecursively(); mkdirs() }
+        val file = preset.orNull?.asFile ?: return
+        val parsed = try { JsonSlurper().parse(file) } catch (e: Exception) { throw GradleException("Preset $file is not valid JSON: ${e.message}") }
+        val keys = (parsed as? Map<*, *>)?.keys ?: throw GradleException("Preset $file must be a JSON object")
+        val unknown = keys.map { it.toString() } - KNOWN_KEYS
+        if (unknown.isNotEmpty()) throw GradleException("Preset $file has unknown keys: $unknown. Known: $KNOWN_KEYS")
+        file.copyTo(File(out, "cinema-preset.json"))
+    }
+
+    private companion object {
+        val KNOWN_KEYS = setOf("jellyfin", "seerr", "sonarr", "radarr", "qbittorrent", "transmission", "deluge",
+            "region", "requestHelperUrl", "streamServiceUrl")
+    }
+}
+
+val presetAsset = tasks.register<PresetAsset>("presetAsset") {
+    preset.set(presetPath.map { rootProject.layout.projectDirectory.file(it) })
+    outputDir.set(layout.buildDirectory.dir("generated/preset"))
+}
+
+androidComponents {
+    onVariants { variant -> variant.sources.assets?.addGeneratedSourceDirectory(presetAsset, PresetAsset::outputDir) }
 }
 
 android {
