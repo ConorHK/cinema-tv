@@ -134,7 +134,10 @@ class PlayerActivity : AppCompatActivity() {
 
     private val startupTimeout = Runnable { fail("no picture in time") }
     private val saveTick = object : Runnable {
-        override fun run() { saveResume(); snapshotToContinue(); reportToJellyfin("Progress"); handler.postDelayed(this, 15_000) }
+        override fun run() { saveResume(); snapshotToContinue(); handler.postDelayed(this, 15_000) }
+    }
+    private val reportTick = object : Runnable {
+        override fun run() { reportToJellyfin("Progress"); handler.postDelayed(this, REPORT_EVERY_MS) }
     }
     /** The next-episode card is up while the credits still play (it appears as they begin, not at the file's end). */
     private var creditsCard = false
@@ -268,6 +271,7 @@ class PlayerActivity : AppCompatActivity() {
         player.addListener(listener)
         player.addAnalyticsListener(bandwidthListener)
         handler.postDelayed(saveTick, 15_000)
+        handler.postDelayed(reportTick, REPORT_EVERY_MS)
         handler.postDelayed(bitrateTick, 1000)
         handler.postDelayed(creditsTick, 1000)
         if (streamOnly()) handler.postDelayed(statsTick, 5000)
@@ -605,6 +609,7 @@ class PlayerActivity : AppCompatActivity() {
             // Seeking is the viewer's choice, not a network fault: never count the wait that follows it.
             if (reason == Player.DISCONTINUITY_REASON_SEEK || reason == Player.DISCONTINUITY_REASON_SEEK_ADJUSTMENT) {
                 seeking = true; closeBuffer(discard = true)
+                if (started && !ended) reportToJellyfin("Progress")
                 if (creditsCard && !ended) {
                     // Back before the credits: the card goes, and comes back when they begin again.
                     val start = com.danielportelabyrne.cinema.data.player.PlayerMath.creditsStartMs(itemChapters, player.duration.takeIf { it != C.TIME_UNSET } ?: 0L)
@@ -1090,6 +1095,8 @@ class PlayerActivity : AppCompatActivity() {
         private const val STEREO_CODECS = "stereo_codecs_ffmpeg"
         /** A fresher resume point further than this from the list's one is worth a seek before playback starts. */
         private const val RESUME_DRIFT_MS = 5_000L
+        /** How often Jellyfin hears the position while playing. */
+        private const val REPORT_EVERY_MS = 5_000L
         /** A torrent has to find peers and buffer first. */
         private const val ENGINE_STARTUP_TIMEOUT_MS = 75_000L
 
