@@ -42,7 +42,14 @@ jobs:
           "$SDKMANAGER" "platforms;android-36" "build-tools;36.0.0"
       - uses: gradle/actions/setup-gradle@v4
       - name: Unit tests and debug build
-        run: ./gradlew testDebugUnitTest assembleDebug --console=plain
+        # The .ci suffix lets the device tests install this build beside the TV's own Cinema.
+        run: ./gradlew testDebugUnitTest assembleDebug -Pcinema.appIdSuffix=.ci --console=plain
+      - name: Keep the debug APK for the device tests
+        uses: actions/upload-artifact@v4
+        with:
+          name: cinema-ci-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 7
       - name: Test report
         if: failure()
         uses: actions/upload-artifact@v4
@@ -68,3 +75,37 @@ jobs:
         with:
           name: desktop-test-report
           path: desktop/build/reports/tests/
+      - name: Keep the jars for the Flatpak build
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-linux
+          path: desktop/build/linux
+          retention-days: 7
+
+  # The Flatpak bundle, built on GitHub's x86-64 runners (compiling mpv is too heavy for the Deck). Its build cache
+  # keeps repeat runs short. The device tests install this bundle on the Steam Deck.
+  flatpak:
+    needs: desktop
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:freedesktop-25.08
+      options: --privileged
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: desktop-linux
+          path: desktop/build/linux
+      - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          bundle: Cinema.flatpak
+          manifest-path: flatpak/io.github.danielportelabyrne.Cinema.yml
+          cache-key: flatpak-builder-${{ github.sha }}
+          restore-cache: true
+          upload-artifact: false
+      - name: Keep the bundle for the device tests
+        uses: actions/upload-artifact@v4
+        with:
+          name: cinema-flatpak
+          path: Cinema.flatpak
+          retention-days: 7

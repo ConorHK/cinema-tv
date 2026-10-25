@@ -65,6 +65,10 @@ android {
     }
 
     buildTypes {
+        debug {
+            // CI installs its build on a real TV next to the owner's own Cinema: -Pcinema.appIdSuffix=.ci
+            providers.gradleProperty("cinema.appIdSuffix").orNull?.let { applicationIdSuffix = it }
+        }
         release {
             isMinifyEnabled = false
             signingConfigs.findByName("release")?.let { signingConfig = it }

@@ -1,0 +1,84 @@
+name: Device tests
+
+# Runs a pull request's CI build on the owner's real devices: the Chromecast with Google TV and the Steam Deck.
+# The devices sit on the owner's home network, so this is deliberately narrow:
+#   * it starts only after CI has passed on a branch of THIS repository (never a fork),
+#   * the `devices` environment needs the owner's approval before anything runs,
+#   * it uses the workflow and scripts from the default branch, and only installs the build CI produced: the
+#     Chromecast gets the APK as a separate ".ci" app, the Deck gets the Flatpak in its own installation.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "CI run whose build to test"
+        required: true
+
+permissions:
+  contents: read
+  actions: read
+
+# One test at a time: there is one of each device.
+concurrency:
+  group: devices
+  cancel-in-progress: false
+
+env:
+  RUN_ID: ${{ github.event.workflow_run.id || inputs.run_id }}
+
+jobs:
+  chromecast:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_repository.full_name == github.repository &&
+       contains(fromJSON('["pull_request", "push"]'), github.event.workflow_run.event))
+    runs-on: [self-hosted, cinema-devices, chromecast]
+    environment: devices
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: cinema-ci-apk
+          path: artifacts
+          run-id: ${{ env.RUN_ID }}
+          github-token: ${{ github.token }}
+      - name: Install on the Chromecast and open each setup page
+        run: scripts/ci/chromecast-smoke.sh artifacts/app-debug.apk out/chromecast
+      - name: Screenshots and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chromecast-screens
+          path: out/chromecast
+          retention-days: 14
+
+  steamdeck:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_repository.full_name == github.repository &&
+       contains(fromJSON('["pull_request", "push"]'), github.event.workflow_run.event))
+    runs-on: [self-hosted, cinema-devices, steamdeck]
+    environment: devices
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: cinema-flatpak
+          path: artifacts
+          run-id: ${{ env.RUN_ID }}
+          github-token: ${{ github.token }}
+      - name: Install the Flatpak on the Deck and run its self-test
+        run: scripts/ci/steamdeck-smoke.sh artifacts/Cinema.flatpak out/steamdeck
+      - name: Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: steamdeck-logs
+          path: out/steamdeck
+          retention-days: 14
