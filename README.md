@@ -108,6 +108,43 @@ After changing dependencies, refresh `nix/deps.json`:
 $(nix build --no-link --print-out-paths .#cinema-tv.mitmCache.updateScript)
 ```
 
+### Building with a preset
+
+A preset bakes your setup into the APK, so the TV skips setup and signs in by itself. Write a JSON file. Every key is optional:
+
+```json
+{
+  "jellyfin": { "url": "http://192.168.1.5:8096", "username": "you", "password": "..." },
+  "seerr": { "url": "http://192.168.1.5:5055" },
+  "sonarr": { "url": "http://192.168.1.5:8989", "apiKey": "..." },
+  "radarr": { "url": "http://192.168.1.5:7878", "apiKey": "..." },
+  "qbittorrent": { "username": "admin", "password": "..." },
+  "region": "IE",
+  "requestHelperUrl": "http://192.168.1.5:8787",
+  "streamServiceUrl": "http://192.168.1.5:9000"
+}
+```
+
+- Seerr signs in with the Jellyfin login unless it has its own `username` and `password`. For a local Seerr account, add `"signIn": "local"` and an `email`.
+- `qbittorrent`, `transmission` and `deluge` logins are used when Sonarr or Radarr hide the client's password. The address still comes from Sonarr and Radarr.
+- Jellyfin needs a username and password, not an API key: watch progress belongs to a user.
+
+Pass the file to Gradle, or set `CINEMA_PRESET`:
+
+```bash
+./gradlew assembleRelease -Pcinema.preset=/path/to/preset.json
+```
+
+The build fails on invalid JSON or an unknown key. The app applies a preset once. Changes made in Settings stay until a build with a different preset is installed; Reset everything brings the preset back.
+
+With Nix, pass a file or an attrset:
+
+```nix
+cinema-tv.packages.x86_64-linux.default.override { preset = ./preset.json; }
+```
+
+**Anyone with the APK can read the preset**, and with Nix it also sits in the world-readable store. Do not share a preset build.
+
 ## Tests
 
 ```bash

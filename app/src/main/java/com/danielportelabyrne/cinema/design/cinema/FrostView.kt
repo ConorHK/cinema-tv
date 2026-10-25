@@ -25,7 +25,9 @@ import com.danielportelabyrne.cinema.design.Cinema
  * snapshot at most every [MIN_INTERVAL_MS] while things move beneath, and once more when they stop. Older systems
  * get the tint alone, made nearly opaque so text behind stays out of the way.
  */
-class FrostView(context: Context, private val sources: List<View>, private val radiusPx: Float) : View(context) {
+class FrostView(context: Context, private val sources: List<View>, radiusPx: Float) : View(context) {
+    var radiusPx: Float = radiusPx
+        set(value) { field = value; invalidateOutline() }
     private val node: RenderNode? = if (Build.VERSION.SDK_INT >= 31) RenderNode("frost").apply {
         setRenderEffect(RenderEffect.createBlurEffect(Cinema.pxf(context, 44) * SCALE, Cinema.pxf(context, 44) * SCALE, Shader.TileMode.CLAMP))
     } else null

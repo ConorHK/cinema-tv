@@ -133,7 +133,10 @@ class PlayerActivity : AppCompatActivity() {
 
     private val startupTimeout = Runnable { fail("no picture in time") }
     private val saveTick = object : Runnable {
-        override fun run() { saveResume(); snapshotToContinue(); reportToJellyfin("Progress"); handler.postDelayed(this, 15_000) }
+        override fun run() { saveResume(); snapshotToContinue(); handler.postDelayed(this, 15_000) }
+    }
+    private val reportTick = object : Runnable {
+        override fun run() { reportToJellyfin("Progress"); handler.postDelayed(this, REPORT_EVERY_MS) }
     }
     /** The next-episode card is up while the credits still play (it appears as they begin, not at the file's end). */
     private var creditsCard = false
@@ -267,6 +270,7 @@ class PlayerActivity : AppCompatActivity() {
         player.addListener(listener)
         player.addAnalyticsListener(bandwidthListener)
         handler.postDelayed(saveTick, 15_000)
+        handler.postDelayed(reportTick, REPORT_EVERY_MS)
         handler.postDelayed(bitrateTick, 1000)
         handler.postDelayed(creditsTick, 1000)
         if (streamOnly()) handler.postDelayed(statsTick, 5000)
@@ -604,6 +608,7 @@ class PlayerActivity : AppCompatActivity() {
             // Seeking is the viewer's choice, not a network fault: never count the wait that follows it.
             if (reason == Player.DISCONTINUITY_REASON_SEEK || reason == Player.DISCONTINUITY_REASON_SEEK_ADJUSTMENT) {
                 seeking = true; closeBuffer(discard = true)
+                if (started && !ended) reportToJellyfin("Progress")
                 if (creditsCard && !ended) {
                     // Back before the credits: the card goes, and comes back when they begin again.
                     val start = com.danielportelabyrne.cinema.data.player.PlayerMath.creditsStartMs(itemChapters, player.duration.takeIf { it != C.TIME_UNSET } ?: 0L)
@@ -740,7 +745,16 @@ class PlayerActivity : AppCompatActivity() {
         c.onCaptions = { toggleCaptions() }
         c.onTracks = { type ->
             val label = when (type) { C.TRACK_TYPE_AUDIO -> "Audio"; C.TRACK_TYPE_VIDEO -> "Quality"; else -> "Subtitles" }
-            runCatching { androidx.media3.ui.TrackSelectionDialogBuilder(this, label, player, type).build().show() }
+            runCatching {
+                val dialog = androidx.media3.ui.TrackSelectionDialogBuilder(this, label, player, type)
+                // The stock namer drops forced flags and track names.
+                if (type == C.TRACK_TYPE_TEXT) dialog.setTrackNameProvider { f ->
+                    com.danielportelabyrne.cinema.data.player.PlayerMath.subtitleName(f.language, f.label,
+                        forced = f.selectionFlags and C.SELECTION_FLAG_FORCED != 0,
+                        captions = f.roleFlags and (C.ROLE_FLAG_CAPTION or C.ROLE_FLAG_DESCRIBES_MUSIC_AND_SOUND) != 0)
+                }
+                dialog.build().show()
+            }
         }
         c.onPrevious = {
             // Back to the start of this chapter, or to the one before if it only just began; without chapters, the start.
@@ -903,7 +917,14 @@ class PlayerActivity : AppCompatActivity() {
     }
 
     private fun applyCaptions() {
-        trackSelector.parameters = trackSelector.buildUponParameters().setTrackTypeDisabled(C.TRACK_TYPE_TEXT, !captionsOn).build()
+        // Without a preferred language, unflagged tracks never auto-select.
+        val locales = resources.configuration.locales
+        val languages = ((0 until locales.size()).map { locales[it].language } + "en").distinct()
+        trackSelector.parameters = trackSelector.buildUponParameters()
+            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, !captionsOn)
+            .setPreferredTextLanguages(*languages.toTypedArray())
+            .setSelectUndeterminedTextLanguage(true)
+            .build()
     }
 
     private fun updateCaptionsLabel() {
@@ -1089,6 +1110,8 @@ class PlayerActivity : AppCompatActivity() {
         private const val STEREO_CODECS = "stereo_codecs_ffmpeg"
         /** A fresher resume point further than this from the list's one is worth a seek before playback starts. */
         private const val RESUME_DRIFT_MS = 5_000L
+        /** How often Jellyfin hears the position while playing. */
+        private const val REPORT_EVERY_MS = 5_000L
         /** A torrent has to find peers and buffer first. */
         private const val ENGINE_STARTUP_TIMEOUT_MS = 75_000L
 

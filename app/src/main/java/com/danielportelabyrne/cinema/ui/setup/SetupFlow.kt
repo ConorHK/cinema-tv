@@ -5,6 +5,7 @@ import android.graphics.drawable.GradientDrawable
 import android.os.Handler
 import android.os.Looper
 import android.text.InputType
+import android.text.method.PasswordTransformationMethod
 import android.view.Gravity
 import android.view.View
 import android.view.inputmethod.EditorInfo
@@ -24,6 +25,7 @@ import com.danielportelabyrne.cinema.data.movies.QueueClient
 import com.danielportelabyrne.cinema.data.movies.SeerrClient
 import com.danielportelabyrne.cinema.data.settings.Arr
 import com.danielportelabyrne.cinema.data.settings.CinemaSettings
+import com.danielportelabyrne.cinema.data.settings.LibraryOrder
 import com.danielportelabyrne.cinema.data.settings.ManualArr
 import com.danielportelabyrne.cinema.design.Cinema
 import com.danielportelabyrne.cinema.design.cinema.CinemaButton
@@ -96,7 +98,7 @@ class SetupFlow(
         settingsMode = name != "welcome"; changed = false; afterStep = null
         when (name) {
             "welcome" -> welcome(); "jellyfin" -> jellyfinServer(); "signin" -> jellyfinSignIn(); "seerr" -> seerrStep()
-            "arr" -> arrStep(); "client" -> clientStep(); "region" -> regionStep(); "advanced" -> advancedStep()
+            "arr" -> arrStep(); "client" -> clientStep(); "region" -> regionStep(); "advanced" -> advancedStep(); "order" -> libraryOrderStep(); "appearance" -> appearanceStep()
             else -> overview()
         }
     }
@@ -238,7 +240,9 @@ class SetupFlow(
             val sKey = p.field("Sonarr API key", manualS?.apiKey, password = true)
             val rUrl = p.field("Radarr address", if (radarr && manualR == null) null else suggest(Arr.RADARR))
             val rKey = p.field("Radarr API key", manualR?.apiKey, password = true)
-            p.status(listOfNotNull(if (sonarr) "Sonarr found through Seerr ✓" else null, if (radarr) "Radarr found through Seerr ✓" else null).joinToString("   "))
+            fun found(arr: Arr, ok: Boolean, manual: ManualArr?) =
+                if (!ok) null else if (manual != null) "${arr.label} connected ✓" else "${arr.label} found through Seerr ✓"
+            p.status(listOfNotNull(found(Arr.SONARR, sonarr, manualS), found(Arr.RADARR, radarr, manualR)).joinToString("   "))
             p.primary("Save", R.drawable.ic_cin_check) {
                 val entries = listOf(Triple(Arr.SONARR, sUrl, sKey), Triple(Arr.RADARR, rUrl, rKey)).map { (arr, url, key) ->
                     val k = key.text.toString().trim()
@@ -328,6 +332,27 @@ class SetupFlow(
         p.secondary("Cancel") { overview() }
     }
 
+    private fun libraryOrderStep() {
+        val p = page("SETTINGS", "Library order", "How My library lists your films and series.")
+        backTo = ::overview
+        val current = settings.libraryOrder
+        LibraryOrder.entries.forEach { order ->
+            p.row(order.label, order.detail).button(if (order == current) "In use ✓" else "Use", accent = order != current) {
+                if (order != current) { settings.libraryOrder = order; changed = true }
+                overview()
+            }
+        }
+        p.secondary("Cancel") { overview() }
+    }
+
+    private fun appearanceStep() {
+        val p = page("APPEARANCE", "Appearance", "How Cinema looks on this TV.")
+        backTo = ::overview
+        val rail = p.row("Navigation bar", railLabel())
+        rail.button("Switch") { settings.railDocked = !settings.railDocked; rail.detail.text = railLabel() }
+        p.primary("Done", R.drawable.ic_cin_check) { overview() }
+    }
+
     // --- Settings overview ---------------------------------------------------------------------------
 
     private fun overview() {
@@ -351,6 +376,10 @@ class SetupFlow(
 
         p.row("Country", Locale("", settings.region).getDisplayCountry(Locale.ENGLISH)).button("Change") { regionStep() }
 
+        p.row("Library order", settings.libraryOrder.label).button("Change") { libraryOrderStep() }
+
+        p.row("Appearance", "How Cinema looks on this TV").button("Change") { appearanceStep() }
+
         val following = LetterboxdRepository.followingCount(activity)
         p.row("Letterboxd", if (following == 0) "Not following anyone. Follow people from the Letterboxd page." else "Following $following · manage them from the Letterboxd page")
 
@@ -361,6 +390,8 @@ class SetupFlow(
         p.row("Reset", "Forget every server, sign-in and setting on this TV").button("Reset everything", danger = true) { confirmReset() }
         p.primary("Done", R.drawable.ic_cin_check) { close() }
     }
+
+    private fun railLabel() = if (settings.railDocked) "Docked to the left edge" else "Floating"
 
     private fun confirmReset() {
         infoSheet.show("RESET", "Reset everything?", "This TV forgets Jellyfin, Seerr, Sonarr, Radarr, download-client logins and the country. " +
@@ -435,6 +466,8 @@ class SetupFlow(
                 // After inputType: a password type swaps in a monospace face, which would clash with the rest.
                 Cinema.style(this, 30, Cinema.CREAM); setHintTextColor(Cinema.DIM)
                 maxLines = 1; isSingleLine = true
+                // isSingleLine replaces the password mask.
+                if (password) transformationMethod = PasswordTransformationMethod.getInstance()
                 imeOptions = (if (password) EditorInfo.IME_ACTION_DONE else EditorInfo.IME_ACTION_NEXT) or EditorInfo.IME_FLAG_NO_EXTRACT_UI
                 setPadding(px(40), 0, px(40), 0)
                 background = GradientDrawable().apply { cornerRadius = px(52).toFloat(); setColor(rest) }

@@ -195,6 +195,19 @@ object PlayerMath {
 
     /** A language code as a name ("eng" -> "English"), or null. */
     fun language(code: String?): String? = code?.takeIf { it.isNotBlank() && it != "und" }?.let { Locale.forLanguageTag(it).getDisplayLanguage(Locale.UK).ifBlank { null } }
+
+    /** "English · Forced", "English · SDH", "English · Signs & Songs". */
+    fun subtitleName(code: String?, label: String?, forced: Boolean, captions: Boolean): String {
+        val lang = language(code)
+        val name = label?.trim()?.takeIf { it.isNotEmpty() }
+        val text = (name ?: "").lowercase(Locale.UK)
+        val parts = mutableListOf<String>()
+        if (lang != null && (name == null || !text.contains(lang.lowercase(Locale.UK)))) parts += lang
+        if (name != null) parts += name
+        if (forced && "forced" !in text) parts += "Forced"
+        if (captions && listOf("sdh", "cc", "hearing").none { it in text }) parts += "SDH"
+        return parts.joinToString(" · ").ifEmpty { "Unknown" }
+    }
 }
 
 /** The last 60 bitrate samples, one a second, for the paused screen's sparkline. */

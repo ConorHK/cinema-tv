@@ -87,6 +87,7 @@ import com.danielportelabyrne.cinema.design.cinema.QwertyKeyboard
 import com.danielportelabyrne.cinema.design.cinema.VoiceListeningView
 import com.danielportelabyrne.cinema.data.search.Qwerty
 import com.danielportelabyrne.cinema.data.search.VoiceState
+import com.danielportelabyrne.cinema.data.settings.LibraryOrder
 import com.danielportelabyrne.cinema.design.cinema.RibbonView
 import com.danielportelabyrne.cinema.design.cinema.StripeDrawable
 import com.danielportelabyrne.cinema.design.Type
@@ -115,6 +116,9 @@ class MoviesPanel(
     private val seerr: SeerrClient,
     private val seerrSheet: SeerrSignInSheet,
     private val infoSheet: com.danielportelabyrne.cinema.ui.room.InfoSheet,
+    /** The rail sits flush on the left edge instead of floating. */
+    private val railDocked: () -> Boolean = { false },
+    private val libraryOrder: () -> LibraryOrder = { LibraryOrder.RECENT },
     /** Opens Settings (over Cinema) from the gear at the foot of the rail. */
     private val onOpenSettings: () -> Unit = {}
 ) {
@@ -240,6 +244,7 @@ class MoviesPanel(
         showAmbient()
         com.danielportelabyrne.cinema.design.Motion.enter(overlay, null, 0f)
         if (!topBuilt) { buildTop(); topBuilt = true }
+        applyRailStyle()
         val reuse = current === Dest.Home && trail.isEmpty() && content.childCount > 0 && heroSet &&
             Perf.now() - builtAt < REUSE_MS && jellyfin.isConnected == builtConnected
         trail.clear(); current = Dest.Home
@@ -406,14 +411,9 @@ class MoviesPanel(
         // A floating glass pill (`.rail`): 92 mockup px wide, inset 32 from the screen edges, over the page.
         top.orientation = LinearLayout.VERTICAL
         top.gravity = Gravity.TOP
-        top.setPadding(0, Cinema.px(activity, 31), 0, Cinema.px(activity, 26))
         top.background = null
         top.elevation = 0f
-        (top.layoutParams as? FrameLayout.LayoutParams)?.let { lp ->
-            lp.width = Cinema.px(activity, RAIL_WIDTH); lp.height = -1
-            lp.setMargins(Cinema.px(activity, 32), Cinema.px(activity, 32), 0, Cinema.px(activity, 32))
-            top.layoutParams = lp
-        }
+        (top.layoutParams as? FrameLayout.LayoutParams)?.let { lp -> lp.height = -1; top.layoutParams = lp }
         // Rows fade into the ground at the right edge (`.fade-r`), once the featured title has scrolled away.
         edgeFade = View(activity).apply {
             background = android.graphics.drawable.GradientDrawable(android.graphics.drawable.GradientDrawable.Orientation.LEFT_RIGHT,
@@ -424,18 +424,16 @@ class MoviesPanel(
         // Frosted glass behind the rail: a blur of the page and ground beneath, in a sibling so the rail's stripe bar
         // can still draw past the pill's edge.
         frost = FrostView(activity, listOfNotNull(ambientView, page), 46f).also { f ->
-            body.addView(f, body.indexOfChild(top), FrameLayout.LayoutParams(Cinema.px(activity, RAIL_WIDTH), -1).apply {
-                setMargins(Cinema.px(activity, 32), Cinema.px(activity, 32), 0, Cinema.px(activity, 32))
-            })
+            body.addView(f, body.indexOfChild(top), FrameLayout.LayoutParams(Cinema.px(activity, RAIL_WIDTH), -1))
         }
         // The active item's stripe bar sits just outside the pill's left edge.
         body.clipChildren = false; body.clipToPadding = false
         (page.layoutParams as? ViewGroup.MarginLayoutParams)?.let { it.marginStart = 0; page.layoutParams = it }
         page.setOnScrollChangeListener { _, _, _, _, _ -> fillNear(); frost?.refresh(); updateEdgeFade() }
         (page as? CinemaContentScrollView)?.navigationTarget = { activeNavigationItem() }
-        val brand = LinearLayout(activity).apply {
+        brand = LinearLayout(activity).apply {
             orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
-            setPadding(Cinema.px(activity, 18), 0, 0, 0); contentDescription = "Cinema"
+            contentDescription = "Cinema"
         }
         brand.addView(ImageView(activity).apply { setImageResource(R.drawable.cinema_mark) }, LinearLayout.LayoutParams(Cinema.px(activity, 56), Cinema.px(activity, 56)))
         wordmark = Cinema.text(activity, "Cinema", 36, Cinema.CREAM, serif = true, weight = 500, tracking = -0.02f).apply { visibility = View.GONE; maxLines = 1 }
@@ -458,7 +456,6 @@ class MoviesPanel(
         top.addView(View(activity), LinearLayout.LayoutParams(1, 0, 1f))
         storageView = Cinema.text(activity, "", 18, Cinema.DIM).apply {
             maxLines = 2; setLineSpacing(0f, 1.1f); visibility = View.GONE
-            setPadding(Cinema.px(activity, 30), Cinema.px(activity, 8), Cinema.px(activity, 20), 0)
         }
         top.addView(storageView, LinearLayout.LayoutParams(-1, -2))
         top.addView(navigationItem("Settings", R.drawable.ic_gear, Dest.Settings), LinearLayout.LayoutParams(-1, Cinema.px(activity, 64)).apply { topMargin = Cinema.px(activity, 12) })
@@ -468,9 +465,36 @@ class MoviesPanel(
             styleTabs()
             frost?.refresh(450)   // a card scaling or a row gliding beneath the rail
         }.also { top.viewTreeObserver.addOnGlobalFocusChangeListener(it) }
+        applyRailStyle()
         setNavigationExpanded(false)
         styleTabs()
     }
+
+    private lateinit var brand: LinearLayout
+    private var docked: Boolean? = null
+
+    /** Docked, the rail fills the left edge; its contents keep their floating places. */
+    private fun applyRailStyle() {
+        val on = railDocked()
+        if (docked == on) return
+        docked = on
+        val gap = Cinema.px(activity, RAIL_GAP)
+        val edge = if (on) 0 else gap
+        val inset = if (on) gap else 0
+        top.setPadding(0, Cinema.px(activity, 31) + inset, 0, Cinema.px(activity, 26) + inset)
+        listOfNotNull<View>(top, frost).forEach { v ->
+            v.layoutParams = (v.layoutParams as FrameLayout.LayoutParams).apply { width = railWidth(); setMargins(edge, edge, 0, edge) }
+        }
+        frost?.radiusPx = if (on) 0f else 46f
+        brand.setPadding(Cinema.px(activity, 18) + inset, 0, 0, 0)
+        storageView.setPadding(Cinema.px(activity, 30) + inset, Cinema.px(activity, 8), Cinema.px(activity, 20), 0)
+        tabs.keys.forEach { item ->
+            item.setPadding(Cinema.px(activity, 14) + inset, 0, Cinema.px(activity, 14), 0)
+            (item as RailItem).docked = on
+        }
+    }
+
+    private fun railWidth() = Cinema.px(activity, (if (navigationExpanded) RAIL_WIDTH_OPEN else RAIL_WIDTH) + if (docked == true) RAIL_GAP else 0)
 
     private fun navigationItem(label: String, icon: Int, dest: Dest): LinearLayout {
         val row = RailItem(activity).apply {
@@ -548,9 +572,9 @@ class MoviesPanel(
     private fun setNavigationExpanded(expanded: Boolean) {
         if (navigationExpanded == expanded) return
         navigationExpanded = expanded
-        top.layoutParams = top.layoutParams.apply { width = Cinema.px(activity, if (expanded) RAIL_WIDTH_OPEN else RAIL_WIDTH) }
+        top.layoutParams = top.layoutParams.apply { width = railWidth() }
         frost?.let { f ->
-            f.layoutParams = f.layoutParams.apply { width = Cinema.px(activity, if (expanded) RAIL_WIDTH_OPEN else RAIL_WIDTH) }
+            f.layoutParams = f.layoutParams.apply { width = railWidth() }
             // Open, the pill lies over the page's text, so the frost is tinted a little deeper to keep the labels clear.
             f.tint = if (expanded) 0xB8120D0A.toInt() else Cinema.RAIL_FILL
         }
@@ -589,11 +613,14 @@ class MoviesPanel(
         var circle: FrameLayout? = null
         var marked = false
             set(value) { if (field != value) { field = value; invalidate() } }
+        /** Docked, the bar sits on the screen edge. */
+        var docked = false
+            set(value) { if (field != value) { field = value; invalidate() } }
         private val bar = StripeDrawable(horizontalBands = false, radius = Cinema.pxf(context, 4))
         init { setWillNotDraw(false); clipChildren = false }
         override fun draw(canvas: Canvas) {
             if (marked) {
-                val left = paddingLeft - Cinema.px(context, 17)
+                val left = if (docked) 0 else paddingLeft - Cinema.px(context, 17)
                 val top = (height - Cinema.px(context, 32)) / 2
                 bar.setBounds(left, top, left + Cinema.px(context, 8), top + Cinema.px(context, 32))
                 bar.draw(canvas)
@@ -765,6 +792,17 @@ class MoviesPanel(
             posterUrl = JellyfinApi.posterUrl(base, item.id), backdropUrl = if (item.hasBackdrop) jellyfin.backdropUrl(item.id) else null,
             imdbId = item.imdbId, tmdbId = item.tmdbId
         )
+    }
+
+    private fun recencyLabel(e: Entry): String {
+        val item = e.library
+        val watched = when (libraryOrder()) {
+            LibraryOrder.RECENT -> item != null && (item.playedMs ?: 0L) > (item.addedMs ?: 0L)
+            LibraryOrder.WATCHED -> item?.playedMs != null
+            LibraryOrder.ADDED -> false
+            LibraryOrder.NAME -> return "In your library"
+        }
+        return if (watched) "Recently watched" else "Recently added"
     }
 
     private fun libraryEntries(items: List<JellyfinItem>): List<Entry> = items.map { Entry(libraryTitle(it), it, jellyfin.playbackHeaders()) }
@@ -1548,7 +1586,7 @@ class MoviesPanel(
         }
         row.inner.addView(note("Loading…"))
         worker.execute {
-            val items = jellyfin.library().take(limit)
+            val items = libraryOrder().sort(jellyfin.library()).take(limit)
             activity.runOnUiThread {
                 if (gen != generation) return@runOnUiThread
                 row.inner.removeAllViews()
@@ -1574,20 +1612,20 @@ class MoviesPanel(
         content.addView(holder, LinearLayout.LayoutParams(-1, -2))
         holder.addView(note("Loading your library…").apply { setPadding(margin, dp(10), 0, dp(10)) })
         worker.execute {
-            val items = jellyfin.library()
+            val items = libraryOrder().sort(jellyfin.library())
             activity.runOnUiThread {
                 if (gen != generation) return@runOnUiThread
                 holder.removeAllViews()
                 if (items.isEmpty()) { holder.addView(note("Nothing in your library yet, or Jellyfin couldn't be reached").apply { setPadding(margin, dp(10), 0, dp(10)) }); return@runOnUiThread }
                 val all = libraryEntries(items)
-                all.filter { it.title.backdropUrl != null }.take(3).let { f -> setHero(f, all.map { e -> e.title }, f.map { "Recently added" }) }
+                all.filter { it.title.backdropUrl != null }.take(3).let { f -> setHero(f, all.map { e -> e.title }, f.map { recencyLabel(it) }) }
                 fun add(heading: String, list: List<Entry>) {
                     if (list.isEmpty()) return
                     val r = row(heading, "${list.size}", into = holder)
                     val related = list.map { it.title }
                     list.forEachIndexed { i, e -> r.inner.addView(card(e, related, badge = false), cardParams(i)) }
                 }
-                add("Recently added", all.take(20))
+                add(libraryOrder().label, all.take(20))
                 add("Films", all.filter { it.title.kind == Kind.MOVIE })
                 add("Series", all.filter { it.title.kind == Kind.SHOW })
                 all.flatMap { e -> e.title.genres.map { g -> g to e } }.groupBy({ it.first }, { it.second })
@@ -3293,6 +3331,7 @@ class MoviesPanel(
         const val HERO_TURN_MS = 9_000L  // the featured title turns this often
         const val RAIL_WIDTH = 92        // mockup px, collapsed
         const val RAIL_WIDTH_OPEN = 420  // mockup px, with labels while the rail has focus
+        const val RAIL_GAP = 32          // mockup px, floating rail to screen edge
         const val PREWARM_SHELVES = 4
         const val CARDS_PER_FRAME = 4
         const val EAGER_POSTERS = 9
