@@ -85,6 +85,9 @@ class MpvTest {
         assertEquals("/app/bin/mpv", args.first())
         assertTrue("--no-config" in args)
         assertTrue("--input-ipc-server=/run/x.sock" in args)
+        assertTrue("--osc=yes" in args)
+        assertTrue("--script-opts=osc-visibility=always" in args)
+        assertTrue("--ontop=yes" in args)
         assertTrue(args.none { it.contains("Authorization") || it.contains("Token") })
         assertFalse("--gpu-context=x11egl" in args)
     }

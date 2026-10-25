@@ -287,7 +287,10 @@ object MpvLaunch {
         val args = mutableListOf(
             mpv,
             "--no-config",                    // the viewer's own mpv setup must not change how Cinema behaves
-            "--idle=yes", "--force-window=yes", "--fullscreen", "--no-terminal",
+            "--idle=yes", "--force-window=yes", "--fullscreen", "--ontop=yes", "--no-terminal",
+            // OSC is mpv's Lua controller; keep it visible for gamepad users who do not move a mouse.
+            "--osc=yes", "--script-opts=osc-visibility=always",
+            "--input-default-bindings=yes", "--input-vo-keyboard=yes",
             "--input-ipc-server=$socket",
             "--title=Cinema", "--keep-open=no", "--save-position-on-quit=no",
             "--hwdec=auto-safe",
