@@ -36,7 +36,33 @@
       devShells = forAllSystems (pkgs: {
         default = pkgs.mkShell {
           inputsFrom = [ self.packages.${pkgs.stdenv.hostPlatform.system}.cinema-tv ];
-          packages = [ pkgs.android-tools ];
+          packages = [ pkgs.android-tools pkgs.gh ];
+        };
+
+        flatpak = pkgs.mkShell {
+          packages = with pkgs; [
+            jdk17
+            flatpak
+            appstream
+            fuse
+            fuse3
+            openssh
+            gradle
+            rsync
+            patch
+            coreutils
+            sshpass
+            gh
+          ];
+
+          shellHook = ''
+            export JAVA_HOME="${pkgs.jdk17}"
+            export FUSERMOUNT_DIR="${pkgs.fuse}/bin"
+            export XDG_DATA_DIRS="/var/lib/flatpak/exports/share:/usr/share''${XDG_DATA_DIRS:+:$XDG_DATA_DIRS}"
+            export STEAM_DECK_HOST="''${STEAM_DECK_HOST:-deck@steamdeck.local}"
+            export STEAM_DECK_PATH="''${STEAM_DECK_PATH:-/home/deck/flatpaks}"
+            echo "Cinema Flatpak build environment loaded"
+          '';
         };
       });
 

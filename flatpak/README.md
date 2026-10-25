@@ -48,6 +48,10 @@ bash flatpak/build-flatpak.sh
 ```
 
 The result is `build/flatpak/Cinema.flatpak`. The bundle contains Cinema, Java, controller support and mpv.
+`build-flatpak.sh` is the general local build-and-bundle flow: it runs tests, builds the application and writes
+`build/flatpak/Cinema.flatpak`. Use `build-flatpak-push.sh` when you want to build and deploy directly to a Steam Deck
+(the default host is `deck@steamdeck.local`); it installs and launches the user-scoped app remotely instead of just
+producing a bundle. Set `SKIP_BUNDLE=false` to transfer a bundle rather than sync a Flatpak repository.
 The Freedesktop runtime supplies the system libraries and codecs. The first build downloads dependencies
 and compiles mpv; subsequent builds reuse the Flatpak Builder cache. An Android SDK is not needed with
 `-Pcinema.desktopOnly=true`.
