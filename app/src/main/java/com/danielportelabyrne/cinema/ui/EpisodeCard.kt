@@ -105,12 +105,12 @@ class EpisodeCard(context: Context, val number: Int, name: String, overview: Str
         badge.addView(badgeCheck, LinearLayout.LayoutParams(p(14), p(14)).apply { marginEnd = p(7) })
         badge.addView(badgeText)
         still.addView(badge, LayoutParams(-2, -2, Gravity.TOP or Gravity.END).apply { rightMargin = p(12); topMargin = p(12) })
-        // Discs are larger than they look (room for the focus rings), so the 22 px gap is taken back off their margins.
+        // Discs are larger than they look (room for the focus rings), so the gap is taken back off their margins.
         val playColumn = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL; clipChildren = false; clipToPadding = false }
         playColumn.addView(play, LinearLayout.LayoutParams(play.box, play.box))
         playColumn.addView(mark, LinearLayout.LayoutParams(mark.box, mark.box).apply { topMargin = p(32) - play.pad - mark.pad })
+        playColumn.addView(download, LinearLayout.LayoutParams(download.box, download.box))
         actions.addView(playColumn, LinearLayout.LayoutParams(-2, -2))
-        actions.addView(download, LinearLayout.LayoutParams(download.box, download.box).apply { marginStart = p(22) - play.pad - download.pad })
         still.addView(actions, LayoutParams(-1, -1))
         airs.setPadding(p(18), p(10), p(18), p(10)); airs.background = Cinema.glass(context, 22f, 0xA80C0806.toInt())
         still.addView(airs, LayoutParams(-2, -2, Gravity.CENTER))
@@ -151,13 +151,18 @@ class EpisodeCard(context: Context, val number: Int, name: String, overview: Str
         refreshTip()
     }
 
-    /** The eye sits off the rail: Down reaches it, and Left or Right leave as if from Play. */
+    /** The eye or Download under Play, when Play shows. */
+    private val below: View? get() = if (play.visibility != VISIBLE) null
+        else listOf(mark, download).firstOrNull { it.visibility == VISIBLE && it.isFocusable }
+
+    /** The disc under Play sits off the rail: Down reaches it, and Left or Right leave as if from Play. */
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        if (event.action == KeyEvent.ACTION_DOWN && mark.visibility == VISIBLE) {
+        val under = below
+        if (event.action == KeyEvent.ACTION_DOWN && under != null) {
             when (event.keyCode) {
-                KeyEvent.KEYCODE_DPAD_DOWN -> if (play.isFocused) return mark.requestFocus()
-                KeyEvent.KEYCODE_DPAD_UP -> if (mark.isFocused) return play.requestFocus()
-                KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT -> if (mark.isFocused) play.requestFocus()
+                KeyEvent.KEYCODE_DPAD_DOWN -> if (play.isFocused) return under.requestFocus()
+                KeyEvent.KEYCODE_DPAD_UP -> if (under.isFocused) return play.requestFocus()
+                KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT -> if (under.isFocused) play.requestFocus()
             }
         }
         return super.dispatchKeyEvent(event)
@@ -168,9 +173,9 @@ class EpisodeCard(context: Context, val number: Int, name: String, overview: Str
         play.contentDescription = if (watched) "Watched. Play episode $number again" else "Play episode $number"
     }
 
-    /** Every focus stop on the card, left to right. */
+    /** The card's stop on the rail: Play, else Download. */
     val focusStops: List<View> get() = if (cardStop) listOf(this) else listOfNotNull(
-        play.takeIf { it.visibility == VISIBLE && it.isFocusable }, download.takeIf { it.visibility == VISIBLE && it.isFocusable })
+        play.takeIf { it.visibility == VISIBLE && it.isFocusable } ?: download.takeIf { it.visibility == VISIBLE && it.isFocusable })
 
     /** Where Down from the season bar lands. */
     val firstStop: View get() = focusStops.firstOrNull() ?: this
@@ -207,6 +212,8 @@ class EpisodeCard(context: Context, val number: Int, name: String, overview: Str
         play.visibility = if (look.playShown) VISIBLE else GONE
         play.isFocusable = look.playShown
         download.visibility = if (look.downloadShown && !marks(look)) VISIBLE else GONE
+        // Alone (unaired, no Play), Download takes Play's place.
+        (download.layoutParams as LinearLayout.LayoutParams).topMargin = if (look.playShown) p(32) - play.pad - download.pad else 0
         mark.visibility = if (marks(look)) VISIBLE else GONE
         shownState = look.state
         download.isFocusable = look.downloadFocusable
