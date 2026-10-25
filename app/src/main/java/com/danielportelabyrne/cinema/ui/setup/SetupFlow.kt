@@ -5,6 +5,7 @@ import android.graphics.drawable.GradientDrawable
 import android.os.Handler
 import android.os.Looper
 import android.text.InputType
+import android.text.method.PasswordTransformationMethod
 import android.view.Gravity
 import android.view.View
 import android.view.inputmethod.EditorInfo
@@ -238,7 +239,9 @@ class SetupFlow(
             val sKey = p.field("Sonarr API key", manualS?.apiKey, password = true)
             val rUrl = p.field("Radarr address", if (radarr && manualR == null) null else suggest(Arr.RADARR))
             val rKey = p.field("Radarr API key", manualR?.apiKey, password = true)
-            p.status(listOfNotNull(if (sonarr) "Sonarr found through Seerr ✓" else null, if (radarr) "Radarr found through Seerr ✓" else null).joinToString("   "))
+            fun found(arr: Arr, ok: Boolean, manual: ManualArr?) =
+                if (!ok) null else if (manual != null) "${arr.label} connected ✓" else "${arr.label} found through Seerr ✓"
+            p.status(listOfNotNull(found(Arr.SONARR, sonarr, manualS), found(Arr.RADARR, radarr, manualR)).joinToString("   "))
             p.primary("Save", R.drawable.ic_cin_check) {
                 val entries = listOf(Triple(Arr.SONARR, sUrl, sKey), Triple(Arr.RADARR, rUrl, rKey)).map { (arr, url, key) ->
                     val k = key.text.toString().trim()
@@ -435,6 +438,8 @@ class SetupFlow(
                 // After inputType: a password type swaps in a monospace face, which would clash with the rest.
                 Cinema.style(this, 30, Cinema.CREAM); setHintTextColor(Cinema.DIM)
                 maxLines = 1; isSingleLine = true
+                // isSingleLine replaces the password mask.
+                if (password) transformationMethod = PasswordTransformationMethod.getInstance()
                 imeOptions = (if (password) EditorInfo.IME_ACTION_DONE else EditorInfo.IME_ACTION_NEXT) or EditorInfo.IME_FLAG_NO_EXTRACT_UI
                 setPadding(px(40), 0, px(40), 0)
                 background = GradientDrawable().apply { cornerRadius = px(52).toFloat(); setColor(rest) }
