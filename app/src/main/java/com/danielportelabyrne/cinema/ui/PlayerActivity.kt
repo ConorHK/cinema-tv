@@ -903,7 +903,14 @@ class PlayerActivity : AppCompatActivity() {
     }
 
     private fun applyCaptions() {
-        trackSelector.parameters = trackSelector.buildUponParameters().setTrackTypeDisabled(C.TRACK_TYPE_TEXT, !captionsOn).build()
+        // Without a preferred language, unflagged tracks never auto-select.
+        val locales = resources.configuration.locales
+        val languages = ((0 until locales.size()).map { locales[it].language } + "en").distinct()
+        trackSelector.parameters = trackSelector.buildUponParameters()
+            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, !captionsOn)
+            .setPreferredTextLanguages(*languages.toTypedArray())
+            .setSelectUndeterminedTextLanguage(true)
+            .build()
     }
 
     private fun updateCaptionsLabel() {
