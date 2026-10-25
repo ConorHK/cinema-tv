@@ -12,6 +12,13 @@
         <package android:name="com.stremio.one" />
     </queries>
 
+    <!-- Lets the launcher's Continue watching row read what is part-watched here (see ContinueWatchingProvider). -->
+    <!-- ${applicationId} so the CI build (".ci" suffix) can sit beside the owner's copy. -->
+    <permission
+        android:name="${applicationId}.permission.CONTINUE_WATCHING"
+        android:label="Read Cinema's Continue watching"
+        android:protectionLevel="normal" />
+
     <uses-feature android:name="android.software.leanback" android:required="false" />
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
 
@@ -45,6 +52,17 @@
                 <category android:name="android.intent.category.LAUNCHER" />
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
+            <!-- Another app opens a Continue watching row here, with the row's key in the "key" extra. -->
+            <intent-filter>
+                <action android:name="${applicationId}.action.RESUME" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
         </activity>
+
+        <provider
+            android:name=".data.ContinueWatchingProvider"
+            android:authorities="${applicationId}.continuewatching"
+            android:exported="true"
+            android:readPermission="${applicationId}.permission.CONTINUE_WATCHING" />
     </application>
 </manifest>

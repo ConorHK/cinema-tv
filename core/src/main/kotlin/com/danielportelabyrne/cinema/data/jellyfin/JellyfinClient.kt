@@ -140,6 +140,13 @@ class JellyfinClient(platform: Platform) {
         return JellyfinApi.withPlays(items, played)
     }
 
+    /** Films and episodes part-watched, most recently watched first. Blocking; empty when signed out or unreachable. */
+    fun continueWatching(): List<JellyfinItem> {
+        val uid = userId ?: return emptyList()
+        val items = request("GET", JellyfinApi.resumeUrl(JellyfinApi.cleanBase(server), uid))?.let { JellyfinApi.parseItems(it) }
+        return items.orEmpty().sortedByDescending { it.playedMs ?: 0L }
+    }
+
     /** The library as last fetched, without asking the server. */
     fun loadedLibrary(): List<JellyfinItem> = library
 
