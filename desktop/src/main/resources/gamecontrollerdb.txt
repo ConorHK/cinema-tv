@@ -1,0 +1,1 @@
+# Cinema relies on SDL's built-in controller mappings; Jamepad looks for this file and is content with it empty.

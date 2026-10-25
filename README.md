@@ -4,6 +4,8 @@ Cinema is a TV app for Google TV, Android TV and Chromecast with Google TV. It b
 
 Everything is set up on the TV the first time it opens. Nothing about anyone's server is built in.
 
+For the Linux desktop and Steam Deck version, see [Flatpak installation, controls and building](flatpak/README.md).
+
 ## What it needs
 
 | Service | Required? | What it's for |
@@ -93,10 +95,10 @@ Without `keystore.properties` the release APK is unsigned and won't install. **B
 ## Tests
 
 ```bash
-./gradlew testDebugUnitTest
+./gradlew :core:test testDebugUnitTest
 ```
 
-GitHub Actions runs the same tests and a debug build on every push to `main` and every pull request.
+GitHub Actions runs three jobs on every push to `main` and every pull request: the shared `core` tests (which need only a JDK), the Android TV unit tests with a debug build, and the Linux desktop tests with the Flatpak's jar bundle.
 
 The unit tests cover the parsing and network logic without a device: Jellyfin, Seerr, Sonarr/Radarr, the three torrent clients (against fake servers), Letterboxd, the catalogue and the player maths. Run them before every PR.
 
@@ -113,22 +115,40 @@ adb shell am start -n com.danielportelabyrne.cinema/.CinemaActivity --es debug_s
 
 ## How the code is laid out
 
+This repository holds both Cinema apps and the code they share:
+
+| Folder | What it is |
+|---|---|
+| `core/` | Plain Kotlin for the JVM, shared by both apps: the service clients, parsing, the catalogue and the Continue/Restart rules. It knows nothing of Android or the desktop. Its tests run with just a JDK. |
+| `app/` | Cinema for Android TV. |
+| `desktop/` | Cinema for Linux and the Steam Deck (Compose for Desktop, mpv). |
+| `flatpak/` | Packaging for the desktop app. |
+
+`core` asks the device for only a few things (private folders, key-value preferences, encrypted secrets, a device name and a log) through the `Platform` interface in `core/.../platform/`. The TV implements it in `app/.../device/AndroidPlatform.kt` and the desktop in `desktop/.../DesktopPlatform.kt`. Anything that needs Android itself (WebView, MediaCodec, the Keystore) stays in `app/`.
+
 ```
+core/src/main/kotlin/com/danielportelabyrne/cinema/
+  platform/                Platform, Preferences, SecretStore and Log: what the apps provide
+  data/settings/           CinemaSettings (addresses, country, helpers)
+  data/jellyfin/           Jellyfin client, sign-in, network discovery, playback reporting
+  data/movies/             Seerr, Sonarr/Radarr, the download queue, and the torrent clients:
+                             DownloadClients.kt (shared interface), Qbit.kt, Transmission.kt, Deluge.kt
+  data/letterboxd/         Reading public Letterboxd pages
+  data/stream/, player/, search/   Stream ranking, player maths, search input
+  ui/WatchProgress.kt      The Watch now / Continue / Restart rules (and EpisodeCardState.kt)
+
 app/src/main/java/com/danielportelabyrne/cinema/
   CinemaActivity.kt        The only screen: Cinema, with setup and Settings over it, and remote-key routing
   ui/MoviesPanel.kt        Cinema itself: the rail, Home, Films, Series, Letterboxd, Library, Downloads, title pages
   ui/PlayerActivity.kt     Full-screen player (Media3 with FFmpeg audio), plus PlayerChrome for its controls
   ui/setup/SetupFlow.kt    First-run setup and the Settings pages
   ui/room/                 Sheets: sign-in, confirmations, reviews (InfoSheet)
-  data/settings/           CinemaSettings (addresses, country, helpers) and SecretStore (Keystore-encrypted secrets)
-  data/jellyfin/           Jellyfin client, sign-in, network discovery, playback reporting
-  data/movies/             Seerr, Sonarr/Radarr, the download queue, and the torrent clients:
-                             DownloadClients.kt (shared interface), Qbit.kt, Transmission.kt, Deluge.kt
-  data/letterboxd/         Reading public Letterboxd pages
+  device/                  AndroidPlatform and AndroidSecretStore (Keystore-encrypted secrets)
+  data/letterboxd/         The Letterboxd page cache (WebView), data/stream/StreamAndroid.kt (MediaCodec)
   design/                  The Cinema look: colours, type, buttons, glass and glow
 ```
 
-- **Settings and secrets.** Jellyfin and Seerr keep their address and sign-in token in their own private preferences. Everything else lives in `CinemaSettings`. Passwords and API keys go only through `SecretStore`, which encrypts them with an Android Keystore key; they are never written in plain text or logged.
+- **Settings and secrets.** Jellyfin and Seerr keep their address and sign-in token in their own private preferences. Everything else lives in `CinemaSettings`. Passwords and API keys go only through `SecretStore`, which encrypts them with an Android Keystore key on the TV (and with a key file in the app's folder on the desktop); they are never written in plain text or logged.
 - **Network calls.** They block and never throw, so callers run them on a background thread and treat `null` as "couldn't reach it".
 
 ### Adding a torrent client

@@ -17,6 +17,7 @@
 
     <!-- Home servers are usually plain http on the local network. -->
     <application
+        android:name=".CinemaApp"
         android:largeHeap="true"
         android:allowBackup="false"
         android:usesCleartextTraffic="true"

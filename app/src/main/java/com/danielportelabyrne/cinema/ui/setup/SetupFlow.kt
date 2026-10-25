@@ -1,5 +1,6 @@
 package com.danielportelabyrne.cinema.ui.setup
 
+import com.danielportelabyrne.cinema.device.AndroidPlatform
 import android.app.Activity
 import android.graphics.drawable.GradientDrawable
 import android.os.Handler
@@ -53,7 +54,7 @@ class SetupFlow(
 ) {
     private val ui = Handler(Looper.getMainLooper())
     private val pool = Executors.newCachedThreadPool()
-    private val queue by lazy { QueueClient(seerr, activity) }
+    private val queue by lazy { QueueClient(seerr, AndroidPlatform(activity)) }
     private var settingsMode = false
     private var changed = false
     /** Bumped every time a page is drawn, so a late network answer never paints over the page that replaced it. */
