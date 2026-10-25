@@ -461,7 +461,7 @@ class PlayerActivity : AppCompatActivity() {
         index = i
         if (i == 0) audioFallbackQueued = false
         val item = items[i]
-        started = false; ended = false; recorded = false
+        started = false; ended = false; recorded = false; keepAwake()
         startupMs = null; bufferEvents = 0; bufferMs = 0; bufferStart = 0; seeking = false; playMs = 0; playingSince = 0
         Log.i(TAG, "Attempt ${i + 1}/${items.size}: ${item.label} [${item.provider}]")
 
@@ -575,6 +575,7 @@ class PlayerActivity : AppCompatActivity() {
         override fun onRenderedFirstFrame() {
             if (started) return
             started = true
+            keepAwake()
             hideLoading()
             // The film's length is known now, so the chapter marks can be placed on the scrubber.
             chrome?.setChapters(itemChapters); refreshNextHook()
@@ -619,6 +620,8 @@ class PlayerActivity : AppCompatActivity() {
                 }
             }
         }
+
+        override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) = keepAwake()
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             if (started && !ended) {
@@ -994,6 +997,12 @@ class PlayerActivity : AppCompatActivity() {
         super.onResume()
         foreground = true
         if (::nextCard.isInitialized) showNextEpisode()
+    }
+
+    /** Paused, the TV's own screensaver may take over: OLED panels burn in. */
+    private fun keepAwake() {
+        if (!started || player.playWhenReady) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
     }
 
     override fun onPause() {
