@@ -102,4 +102,36 @@ class JellyfinApiTest {
         val source = org.json.JSONObject("""{"MediaStreams":[{"Index":0,"Type":"Video","Codec":"h264"},{"Index":1,"Type":"Audio","Codec":"eac3"},{"Index":2,"Type":"Audio","Codec":"aac"}]}""")
         assertEquals("eac3", JellyfinApi.defaultAudioCodec(source))
     }
+
+    @Test fun series_count_their_newest_episode_as_added() {
+        val items = JellyfinApi.parseItems("""{"Items":[
+          {"Id":"s1","Type":"Series","DateCreated":"2020-01-01T00:00:00.0000000Z","DateLastMediaAdded":"2026-10-20T10:00:00.1234567Z"},
+          {"Id":"m1","Type":"Movie","DateCreated":"2026-10-01T00:00:00Z","DateLastMediaAdded":null,"UserData":{"LastPlayedDate":"2026-10-22T00:00:00Z"}},
+          {"Id":"m2","Type":"Movie"}]}""")
+        assertEquals(JellyfinApi.utcMillis("2026-10-20T10:00:00"), items[0].addedMs)
+        assertEquals(JellyfinApi.utcMillis("2026-10-01T00:00:00"), items[1].addedMs)
+        assertEquals(JellyfinApi.utcMillis("2026-10-22T00:00:00"), items[1].playedMs)
+        assertNull(items[2].addedMs); assertNull(items[2].playedMs)
+    }
+
+    @Test fun episodes_lend_their_play_date_to_the_series() {
+        val day = 86_400_000L
+        val library = listOf(
+            JellyfinItem("old", "Old film", null, "Movie", null, addedMs = 1 * day),
+            JellyfinItem("show", "Show", null, "Series", null, addedMs = 2 * day),
+            JellyfinItem("new", "New film", null, "Movie", null, addedMs = 5 * day))
+        val played = listOf(
+            JellyfinItem("e1", "Pilot", null, "Episode", null, seriesId = "show", playedMs = 9 * day),
+            JellyfinItem("e2", "Second", null, "Episode", null, seriesId = "show", playedMs = 3 * day),
+            JellyfinItem("old", "Old film", null, "Movie", null, playedMs = 4 * day),
+            JellyfinItem("e3", "Unplayed", null, "Episode", null, seriesId = "new"))
+        val merged = JellyfinApi.withPlays(library, played)
+        assertEquals(listOf("old", "show", "new"), merged.map { it.id })
+        assertEquals(listOf(4 * day, 9 * day, null), merged.map { it.playedMs })
+    }
+
+    @Test fun recently_played_request_sorts_by_play_date() {
+        val url = JellyfinApi.recentlyPlayedUrl("http://deck:8096", "user1")
+        assertTrue(url.contains("IncludeItemTypes=Movie,Episode") && url.contains("SortBy=DatePlayed") && url.contains("SortOrder=Descending"))
+    }
 }

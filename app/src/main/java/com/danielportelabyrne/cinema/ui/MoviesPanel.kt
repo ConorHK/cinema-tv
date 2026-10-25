@@ -88,6 +88,7 @@ import com.danielportelabyrne.cinema.design.cinema.QwertyKeyboard
 import com.danielportelabyrne.cinema.design.cinema.VoiceListeningView
 import com.danielportelabyrne.cinema.data.search.Qwerty
 import com.danielportelabyrne.cinema.data.search.VoiceState
+import com.danielportelabyrne.cinema.data.settings.LibraryOrder
 import com.danielportelabyrne.cinema.design.cinema.RibbonView
 import com.danielportelabyrne.cinema.design.cinema.StripeDrawable
 import com.danielportelabyrne.cinema.design.Type
@@ -116,6 +117,7 @@ class MoviesPanel(
     private val seerr: SeerrClient,
     private val seerrSheet: SeerrSignInSheet,
     private val infoSheet: com.danielportelabyrne.cinema.ui.room.InfoSheet,
+    private val libraryOrder: () -> LibraryOrder = { LibraryOrder.RECENT },
     /** Opens Settings (over Cinema) from the gear at the foot of the rail. */
     private val onOpenSettings: () -> Unit = {}
 ) {
@@ -766,6 +768,17 @@ class MoviesPanel(
             posterUrl = JellyfinApi.posterUrl(base, item.id), backdropUrl = if (item.hasBackdrop) jellyfin.backdropUrl(item.id) else null,
             imdbId = item.imdbId, tmdbId = item.tmdbId
         )
+    }
+
+    private fun recencyLabel(e: Entry): String {
+        val item = e.library
+        val watched = when (libraryOrder()) {
+            LibraryOrder.RECENT -> item != null && (item.playedMs ?: 0L) > (item.addedMs ?: 0L)
+            LibraryOrder.WATCHED -> item?.playedMs != null
+            LibraryOrder.ADDED -> false
+            LibraryOrder.NAME -> return "In your library"
+        }
+        return if (watched) "Recently watched" else "Recently added"
     }
 
     private fun libraryEntries(items: List<JellyfinItem>): List<Entry> = items.map { Entry(libraryTitle(it), it, jellyfin.playbackHeaders()) }
@@ -1550,7 +1563,7 @@ class MoviesPanel(
         }
         row.inner.addView(note("Loading…"))
         worker.execute {
-            val items = jellyfin.library().take(limit)
+            val items = libraryOrder().sort(jellyfin.library()).take(limit)
             activity.runOnUiThread {
                 if (gen != generation) return@runOnUiThread
                 row.inner.removeAllViews()
@@ -1576,20 +1589,20 @@ class MoviesPanel(
         content.addView(holder, LinearLayout.LayoutParams(-1, -2))
         holder.addView(note("Loading your library…").apply { setPadding(margin, dp(10), 0, dp(10)) })
         worker.execute {
-            val items = jellyfin.library()
+            val items = libraryOrder().sort(jellyfin.library())
             activity.runOnUiThread {
                 if (gen != generation) return@runOnUiThread
                 holder.removeAllViews()
                 if (items.isEmpty()) { holder.addView(note("Nothing in your library yet, or Jellyfin couldn't be reached").apply { setPadding(margin, dp(10), 0, dp(10)) }); return@runOnUiThread }
                 val all = libraryEntries(items)
-                all.filter { it.title.backdropUrl != null }.take(3).let { f -> setHero(f, all.map { e -> e.title }, f.map { "Recently added" }) }
+                all.filter { it.title.backdropUrl != null }.take(3).let { f -> setHero(f, all.map { e -> e.title }, f.map { recencyLabel(it) }) }
                 fun add(heading: String, list: List<Entry>) {
                     if (list.isEmpty()) return
                     val r = row(heading, "${list.size}", into = holder)
                     val related = list.map { it.title }
                     list.forEachIndexed { i, e -> r.inner.addView(card(e, related, badge = false), cardParams(i)) }
                 }
-                add("Recently added", all.take(20))
+                add(libraryOrder().label, all.take(20))
                 add("Films", all.filter { it.title.kind == Kind.MOVIE })
                 add("Series", all.filter { it.title.kind == Kind.SHOW })
                 all.flatMap { e -> e.title.genres.map { g -> g to e } }.groupBy({ it.first }, { it.second })

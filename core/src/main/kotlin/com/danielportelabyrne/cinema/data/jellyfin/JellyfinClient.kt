@@ -117,7 +117,8 @@ class JellyfinClient(platform: Platform) {
     val libraryLoadedAt: Long get() = libraryAt
 
     /**
-     * Every film and series, newest first, kept for a few minutes so flicking through picks costs one request, not many.
+     * Every film and series, newest first, with play dates, kept for a few minutes so flicking through picks costs
+     * two requests, not many.
      * One fetch at a time: callers arriving while it runs share its answer, and no lock is held across the network.
      */
     fun library(force: Boolean = false): List<JellyfinItem> {
@@ -126,11 +127,17 @@ class JellyfinClient(platform: Platform) {
         // The server was unreachable a moment ago: answer from what we have rather than making every caller wait again.
         if (!force && reachability.backingOff) return library
         return libraryFlight.run {
-            request("GET", JellyfinApi.libraryUrl(JellyfinApi.cleanBase(server), uid))?.let { body ->
-                library = JellyfinApi.parseItems(body); libraryAt = System.currentTimeMillis()
-            }
+            fetchLibrary(uid)?.let { library = it; libraryAt = System.currentTimeMillis() }
             library
         }
+    }
+
+    /** Null when the server cannot be asked. Without play dates it still sorts by date added. */
+    private fun fetchLibrary(uid: String): List<JellyfinItem>? {
+        val base = JellyfinApi.cleanBase(server)
+        val items = request("GET", JellyfinApi.libraryUrl(base, uid))?.let { JellyfinApi.parseItems(it) } ?: return null
+        val played = request("GET", JellyfinApi.recentlyPlayedUrl(base, uid))?.let { JellyfinApi.parseItems(it) }.orEmpty()
+        return JellyfinApi.withPlays(items, played)
     }
 
     /** The library as last fetched, without asking the server. */
@@ -147,8 +154,7 @@ class JellyfinClient(platform: Platform) {
      */
     fun stillInLibrary(itemId: String): Boolean? {
         val uid = userId ?: return null
-        val body = request("GET", JellyfinApi.libraryUrl(JellyfinApi.cleanBase(server), uid)) ?: return null
-        library = JellyfinApi.parseItems(body); libraryAt = System.currentTimeMillis()
+        library = fetchLibrary(uid) ?: return null; libraryAt = System.currentTimeMillis()
         return library.any { it.id == itemId }
     }
 

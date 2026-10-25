@@ -25,6 +25,7 @@ import com.danielportelabyrne.cinema.data.movies.QueueClient
 import com.danielportelabyrne.cinema.data.movies.SeerrClient
 import com.danielportelabyrne.cinema.data.settings.Arr
 import com.danielportelabyrne.cinema.data.settings.CinemaSettings
+import com.danielportelabyrne.cinema.data.settings.LibraryOrder
 import com.danielportelabyrne.cinema.data.settings.ManualArr
 import com.danielportelabyrne.cinema.design.Cinema
 import com.danielportelabyrne.cinema.design.cinema.CinemaButton
@@ -97,7 +98,7 @@ class SetupFlow(
         settingsMode = name != "welcome"; changed = false; afterStep = null
         when (name) {
             "welcome" -> welcome(); "jellyfin" -> jellyfinServer(); "signin" -> jellyfinSignIn(); "seerr" -> seerrStep()
-            "arr" -> arrStep(); "client" -> clientStep(); "region" -> regionStep(); "advanced" -> advancedStep()
+            "arr" -> arrStep(); "client" -> clientStep(); "region" -> regionStep(); "advanced" -> advancedStep(); "order" -> libraryOrderStep()
             else -> overview()
         }
     }
@@ -329,6 +330,19 @@ class SetupFlow(
         p.secondary("Cancel") { overview() }
     }
 
+    private fun libraryOrderStep() {
+        val p = page("SETTINGS", "Library order", "How My library lists your films and series.")
+        backTo = ::overview
+        val current = settings.libraryOrder
+        LibraryOrder.entries.forEach { order ->
+            p.row(order.label, order.detail).button(if (order == current) "In use ✓" else "Use", accent = order != current) {
+                if (order != current) { settings.libraryOrder = order; changed = true }
+                overview()
+            }
+        }
+        p.secondary("Cancel") { overview() }
+    }
+
     // --- Settings overview ---------------------------------------------------------------------------
 
     private fun overview() {
@@ -351,6 +365,8 @@ class SetupFlow(
         }
 
         p.row("Country", Locale("", settings.region).getDisplayCountry(Locale.ENGLISH)).button("Change") { regionStep() }
+
+        p.row("Library order", settings.libraryOrder.label).button("Change") { libraryOrderStep() }
 
         val following = LetterboxdRepository.followingCount(activity)
         p.row("Letterboxd", if (following == 0) "Not following anyone. Follow people from the Letterboxd page." else "Following $following · manage them from the Letterboxd page")

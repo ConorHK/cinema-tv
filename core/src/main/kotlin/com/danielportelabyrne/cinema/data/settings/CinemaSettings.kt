@@ -24,6 +24,10 @@ class CinemaSettings(platform: Platform) {
         get() = prefs.getBoolean("setup_done", false)
         set(v) { prefs.edit().putBoolean("setup_done", v).apply() }
 
+    var libraryOrder: LibraryOrder
+        get() = LibraryOrder.of(prefs.getString("library_order", null))
+        set(v) { prefs.edit().putString("library_order", v.name).apply() }
+
     /** Two-letter country for what is streaming where: the TV's own country until the owner picks another. */
     var region: String
         get() = prefs.getString("region", null) ?: defaultRegion()
