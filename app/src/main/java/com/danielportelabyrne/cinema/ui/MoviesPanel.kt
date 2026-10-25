@@ -530,6 +530,12 @@ class MoviesPanel(
         return true
     }
 
+    private fun detailUnfocused(): Boolean {
+        if (!detailOpen) return false
+        val f = overlay.findFocus()
+        return f == null || f === overlay || f === detail
+    }
+
     private fun focusContent() {
         val previous = lastContentFocus?.takeIf { it.isAttachedToWindow && it.isShown && it.isEnabled && it.isFocusable }
         if (previous?.requestFocus() == true) return
@@ -2507,14 +2513,16 @@ class MoviesPanel(
             visibility = if (!inLibrary && t.kind == Kind.MOVIE && seerr.hasStreamService) View.VISIBLE else View.GONE
             setOnClickListener { streamNow(e, this) }
         }
+        val season = if (t.kind == Kind.SHOW) CinemaButton(activity, CinemaButton.Kind.TERRA, "", R.drawable.ic_cin_dl).apply { visibility = View.GONE } else null
         val gap = Cinema.px(activity, 20); val h = Cinema.px(activity, 76)
-        buttons.addView(primary, LinearLayout.LayoutParams(-2, h))
-        buttons.addView(restart, LinearLayout.LayoutParams(-2, h).apply { marginStart = gap })
-        buttons.addView(stream, LinearLayout.LayoutParams(-2, h).apply { marginStart = gap })
-        buttons.addView(clearStale, LinearLayout.LayoutParams(-2, h).apply { marginStart = gap })
+        buttons.addView(primary, LinearLayout.LayoutParams(-2, h).apply { marginEnd = gap })
+        season?.let { buttons.addView(it, LinearLayout.LayoutParams(-2, h).apply { marginEnd = gap }) }
+        buttons.addView(restart, LinearLayout.LayoutParams(-2, h).apply { marginEnd = gap })
+        buttons.addView(stream, LinearLayout.LayoutParams(-2, h).apply { marginEnd = gap })
+        buttons.addView(clearStale, LinearLayout.LayoutParams(-2, h).apply { marginEnd = gap })
         // Anything on disk can be taken off it, a series or a film, from its own page.
         if (inLibrary) buttons.addView(CinemaButton(activity, CinemaButton.Kind.DANGER, "Delete", R.drawable.ic_cin_trash).apply { setOnClickListener { confirmDelete(e) } },
-            LinearLayout.LayoutParams(-2, h).apply { marginStart = gap })
+            LinearLayout.LayoutParams(-2, h).apply { marginEnd = gap })
         text.addView(buttons, LinearLayout.LayoutParams(-2, -2).apply { topMargin = Cinema.px(activity, 30) })
         topRow.addView(text, LinearLayout.LayoutParams(0, -2, 1f))
 
@@ -2523,7 +2531,7 @@ class MoviesPanel(
         topRow.addView(posterBox, LinearLayout.LayoutParams(Cinema.px(activity, 300), Cinema.px(activity, 450)).apply { marginStart = Cinema.px(activity, 48); topMargin = -Cinema.px(activity, 12) })
         column.addView(topRow, LinearLayout.LayoutParams(-1, -2))
 
-        if (t.kind == Kind.SHOW) seasonSection(column, e, primary)
+        if (season != null) seasonSection(column, e, primary, season)
         lbFilmSection(column, e)
         val more = related.filter { it.key != t.key }.take(14)
         var moreHeading: View? = null
@@ -2607,7 +2615,7 @@ class MoviesPanel(
         fun set(label: String, enabled: Boolean, action: (() -> Unit)?) {
             button.setText(label); button.isEnabled = enabled
             // Disabled while checking, so focus arrives late.
-            if (enabled && detailOpen && overlay.findFocus() == null) button.requestFocus()
+            if (enabled && detailUnfocused()) button.requestFocus()
             // Terracotta only while there is something to queue; a request already on its way rests as glass.
             if (e.library == null) button.kind = if (enabled) CinemaButton.Kind.TERRA else CinemaButton.Kind.GLASS
             button.setOnClickListener { action?.invoke() }
@@ -2639,12 +2647,20 @@ class MoviesPanel(
                 }
             }
         }
-        if (!seerr.isSignedIn) { set("Queue download", true) { queue() }; return }
+        val show = e.title.kind == Kind.SHOW
+        if (!seerr.isSignedIn) {
+            if (show) set("Sign in to Seerr", true) { seerrSheet.show(seerr, jellyfin) { detailButtons?.invoke() } }
+            else set("Queue download", true) { queue() }
+            return
+        }
+        if (show) button.visibility = View.GONE
         set("Checking…", false, null)
         worker.execute {
             val state = seerr.titleState(e.title.kind, tmdb)
             activity.runOnUiThread {
                 if (!detailOpen || !button.isAttachedToWindow) return@runOnUiThread
+                if (show && state?.staleCandidate == true && seerr.hasRequestHelper) button.visibility = View.VISIBLE
+                if (show && button.visibility != View.VISIBLE) return@runOnUiThread
                 if (state == null) {
                     set("Retry status check", true) { setupPrimary(button, e, clearStale, restart, refresh) }
                     return@runOnUiThread
@@ -2678,7 +2694,7 @@ class MoviesPanel(
                     Availability.DOWNLOADING -> set("Downloading…", false, null)
                     Availability.PARTIAL -> set("Partly downloaded", false, null)
                     Availability.AVAILABLE -> set("Downloaded, syncing", false, null)
-                    Availability.NONE -> set(if (e.title.kind == Kind.SHOW) "Request all seasons" else "Queue download", true) { queue() }
+                    Availability.NONE -> set("Queue download", true) { queue() }
                 }
             }
         }
@@ -2786,12 +2802,7 @@ class MoviesPanel(
     /** One episode as a card shows it, from Seerr's listing or, without one, from the library. */
     private class EpisodeRow(val number: Int, val name: String, val overview: String?, val airDate: String?, val stillUrl: String?, val runtime: Int?)
 
-    /**
-     * Under a series' title (`docs/ui-review/series-episodes`): a bar of season tabs with the season's counts and its
-     * download button, then a rail of episode title cards. Each card plays its episode (from the library, or streamed)
-     * and asks Sonarr for that one episode. A season shows its episodes from Seerr's listing, merged with what Jellyfin holds.
-     */
-    private fun seasonSection(parent: LinearLayout, e: Entry, primary: CinemaButton?) {
+    private fun seasonSection(parent: LinearLayout, e: Entry, primary: CinemaButton?, seasonButton: CinemaButton) {
         val tmdb = e.title.tmdbId?.toLongOrNull()
         val box = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL; clipChildren = false; clipToPadding = false }
         parent.addView(box, LinearLayout.LayoutParams(-1, -2).apply { topMargin = Cinema.px(activity, 60) })
@@ -2808,9 +2819,10 @@ class MoviesPanel(
             val states = HashMap<Pair<Int, Int>, EpisodeState>()
             val downloads = ArrayList<QueueItem>()
             var refresh: () -> Unit = {}
+            var arrKnown = !signedIn
             activity.runOnUiThread {
                 if (!detailOpen || !box.isAttachedToWindow) return@runOnUiThread
-                refresh = drawSeasons(box, e, tmdb, seasons, owned, states, downloads)
+                refresh = drawSeasons(box, e, tmdb, seasons, owned, states, downloads, seasonButton) { arrKnown }
                 resumeOnHero(primary, e, owned)
                 Perf.end("seasons.draw", "${owned.size} episodes, ${seasons.size} seasons")
             }
@@ -2820,14 +2832,19 @@ class MoviesPanel(
             // Episodes on disk that Jellyfin has not yet picked up: ask it to scan (at most every ten minutes), so they turn into Play.
             val unscanned = known.any { (k, v) -> v == EpisodeState.DOWNLOADED && owned.none { it.season == k.first && it.episode == k.second } }
             if (unscanned && System.currentTimeMillis() - lastScanMs > 10 * 60_000L) { lastScanMs = System.currentTimeMillis(); jellyfin.refreshLibrary() }
+            activity.runOnUiThread {
+                if (!detailOpen || !box.isAttachedToWindow) return@runOnUiThread
+                known.forEach { (k, v) -> states.putIfAbsent(k, v) }
+                arrKnown = true
+                refresh()
+            }
             // What is downloading right now, so a card can show how far its episode has got.
             val busy = known.values.any { it == EpisodeState.REQUESTED } || seasons.any { it.availability == Availability.PROCESSING || it.availability == Availability.DOWNLOADING || it.availability == Availability.PARTIAL }
             val active = if (busy) queueClient.items().orEmpty().filter { it.tmdbId == tmdb } else emptyList()
             Perf.end("seasons.arr", "${known.size} states, ${active.size} downloads")
-            if (known.isEmpty() && active.isEmpty()) return@execute
+            if (active.isEmpty()) return@execute
             activity.runOnUiThread {
                 if (!detailOpen || !box.isAttachedToWindow) return@runOnUiThread
-                known.forEach { (k, v) -> states.putIfAbsent(k, v) }
                 downloads.addAll(active)
                 refresh()
             }
@@ -2845,13 +2862,14 @@ class MoviesPanel(
 
     /** Returns a restate of the shown season, for when Sonarr's episode states or downloads arrive later. */
     private fun drawSeasons(box: LinearLayout, e: Entry, tmdb: Long?, seasons: List<SeasonState>, owned: List<JellyfinItem>,
-                            states: MutableMap<Pair<Int, Int>, EpisodeState>, downloads: List<QueueItem>): () -> Unit {
+                            states: MutableMap<Pair<Int, Int>, EpisodeState>, downloads: List<QueueItem>, seasonButton: CinemaButton,
+                            arrKnown: () -> Boolean): () -> Unit {
         box.removeAllViews()
         if (seasons.isEmpty()) {
-            box.addView(note(if (!seerr.isSignedIn && e.library == null) "Press Queue download to sign in, then the seasons and episodes will be listed here." else "No season information available."))
+            seasonButton.visibility = View.GONE
+            box.addView(note(if (!seerr.isSignedIn && e.library == null) "Sign in to Seerr to list seasons and episodes here." else "No season information available."))
             return {}
         }
-        // The season bar (`.sbar`): stripe marker, the tabs, then the season's counts and its action on the right.
         val bar = LinearLayout(activity).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; clipChildren = false; clipToPadding = false }
         box.addView(bar, LinearLayout.LayoutParams(-1, Cinema.px(activity, 62)))
         bar.addView(View(activity).apply { background = StripeDrawable(horizontalBands = false, radius = Cinema.pxf(activity, 7)) },
@@ -2868,8 +2886,6 @@ class MoviesPanel(
         bar.addView(tabScroller, LinearLayout.LayoutParams(0, -1, 1f))
         val info = LinearLayout(activity).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         bar.addView(info, LinearLayout.LayoutParams(-2, -2).apply { marginStart = Cinema.px(activity, 24); marginEnd = Cinema.px(activity, 22) })
-        val actionSlot = FrameLayout(activity).apply { clipChildren = false; clipToPadding = false }
-        bar.addView(actionSlot, LinearLayout.LayoutParams(-2, Cinema.px(activity, 60)))
 
         // The episode rail, 32 px under the bar (the row's own 16 px padding plus 16 more).
         val rail = row(null, null, into = box, inset = false)
@@ -2892,7 +2908,6 @@ class MoviesPanel(
             }
         }
 
-        // Down from anywhere on the bar lands on the resume episode, or the first card.
         val downToRail = View.OnKeyListener { _, code, ev ->
             ev.action == android.view.KeyEvent.ACTION_DOWN && code == android.view.KeyEvent.KEYCODE_DPAD_DOWN &&
                 railTarget?.takeIf { it.isAttachedToWindow }?.requestFocus() == true
@@ -2900,16 +2915,25 @@ class MoviesPanel(
 
         lateinit var showSeason: (SeasonState) -> Unit
 
-        fun setAction(s: SeasonState, allInLibrary: Boolean) {
-            actionSlot.removeAllViews()
-            val label = EpisodeCards.seasonAction(s.availability, s.name, allInLibrary) ?: return
-            val can = s.availability == Availability.NONE && tmdb != null
-            val button = CinemaButton(activity, if (can) CinemaButton.Kind.TERRA else CinemaButton.Kind.GLASS, label, if (can) R.drawable.ic_cin_dl else null, small = true)
+        val button = seasonButton
+        fun yieldFocus() { if (button.isFocused) (button.focusSearch(View.FOCUS_LEFT) ?: selectedTab())?.requestFocus() }
+
+        fun setAction(s: SeasonState, allInLibrary: Boolean, tracked: Boolean = false, ready: Boolean = false) {
+            val availability = if (tracked && s.availability == Availability.NONE) Availability.REQUESTED else s.availability
+            val checking = !ready && availability == Availability.NONE
+            val label = if (checking) "Checking…" else EpisodeCards.seasonAction(availability, s.name, allInLibrary)
+            val can = !checking && label != null && availability == Availability.NONE && tmdb != null
+            if (!can) yieldFocus()
+            button.visibility = if (label == null) View.GONE else View.VISIBLE
+            if (label == null) return
+            button.kind = if (can) CinemaButton.Kind.TERRA else CinemaButton.Kind.GLASS
+            button.showIcon(can)
+            button.setText(label)
             button.isEnabled = can
-            button.setOnKeyListener(downToRail)
-            button.setOnFocusChangeListener { v, f -> if (f) reveal(v) }
+            if (can && detailUnfocused()) button.requestFocus()
             button.setOnClickListener {
                 if (!seerr.isSignedIn) { seerrSheet.show(seerr, jellyfin) { showSeason(s) }; return@setOnClickListener }
+                yieldFocus()
                 button.setText("Requesting…"); button.isEnabled = false
                 worker.execute {
                     val outcome = seerr.request(Kind.SHOW, tmdb!!, listOf(s.number))
@@ -2919,11 +2943,10 @@ class MoviesPanel(
                             RequestOutcome.NEEDS_SIGN_IN -> seerrSheet.show(seerr, jellyfin) { showSeason(s) }
                             RequestOutcome.FAILED -> Toast.makeText(activity, "Couldn't queue ${s.name} right now", Toast.LENGTH_LONG).show()
                         }
-                        if (detailOpen && shown === s) { showSeason(s); selectedTab()?.requestFocus() }
+                        if (detailOpen && shown === s) showSeason(s)
                     }
                 }
             }
-            actionSlot.addView(button, FrameLayout.LayoutParams(-2, -1))
         }
 
         /** A drawn card; [restate] rebinds it in place from the latest states and downloads. */
@@ -3038,7 +3061,7 @@ class MoviesPanel(
                     val ownedHere = owned.filter { it.season == s.number }
                     val rows = if (listing.isNotEmpty()) listing.map { EpisodeRow(it.number, it.name, it.overview, it.airDate, it.stillUrl, it.runtime) }
                                else ownedHere.filter { it.episode != null }.map { EpisodeRow(it.episode!!, it.name, it.overview, null, null, it.runtimeMin) }
-                    if (rows.isEmpty()) { rail.inner.addView(note("No episode list available for this season.")); return@runOnUiThread }
+                    if (rows.isEmpty()) { rail.inner.addView(note("No episode list available for this season.")); setAction(s, allInLibrary = false, ready = true); return@runOnUiThread }
                     val today = EpisodeCards.today()
                     val cards = rows.sortedBy { it.number }.mapIndexed { i, ep ->
                         val mine = ownedHere.firstOrNull { it.episode == ep.number }
@@ -3046,18 +3069,16 @@ class MoviesPanel(
                             rail.inner.addView(it.card, LinearLayout.LayoutParams(-2, -2).apply { if (i > 0) marginStart = Cinema.px(activity, 40) })
                         }
                     }
-                    var actionAllIn = false
+                    var actionState: Triple<Boolean, Boolean, Boolean>? = null
                     fun settle() {
                         val inLibrary = cards.count { it.look().state == CardState.LIBRARY }
                         setInfo(EpisodeCards.seasonInfo(rows.size, inLibrary, cards.count { it.look().state == CardState.DOWNLOADING }))
                         val allIn = inLibrary >= rows.size
-                        // Rebuilding a focused action would drop focus.
-                        if (allIn != actionAllIn) {
-                            actionAllIn = allIn
-                            val held = actionSlot.hasFocus()
-                            if (held) selectedTab()?.requestFocus()
-                            setAction(s, allInLibrary = allIn)
-                            if (held) actionSlot.getChildAt(0)?.takeIf { it.isFocusable && it.isEnabled }?.requestFocus()
+                        val tracked = cards.none { it.look().state == CardState.REQUEST || it.look().state == CardState.UNAIRED }
+                        val now = Triple(allIn, tracked, arrKnown())
+                        if (now != actionState) {
+                            actionState = now
+                            setAction(s, allInLibrary = allIn, tracked = tracked, ready = now.third)
                         }
 
                         // Focus runs along the rail, Play then Download on each card; Up returns to the season's tab.

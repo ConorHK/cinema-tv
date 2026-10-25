@@ -50,6 +50,8 @@ class CinemaButton(context: Context, kind: Kind, label: CharSequence, iconRes: I
 
     fun setText(value: CharSequence) { label.text = value; contentDescription = value }
 
+    fun showIcon(show: Boolean) { icon?.visibility = if (show) VISIBLE else GONE }
+
     override fun setEnabled(enabled: Boolean) { super.setEnabled(enabled); alpha = if (enabled) 1f else 0.6f }
 
     override fun onFocusChanged(gainFocus: Boolean, direction: Int, previouslyFocusedRect: android.graphics.Rect?) {
