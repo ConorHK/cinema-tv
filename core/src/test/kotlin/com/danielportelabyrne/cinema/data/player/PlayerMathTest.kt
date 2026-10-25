@@ -206,3 +206,21 @@ class CreditsStartTest {
         assertNull(PlayerMath.creditsStartMs(emptyList(), 0L))
     }
 }
+
+class SubtitleNameTest {
+    @Test fun plain_track_is_just_the_language() {
+        assertEquals("English", PlayerMath.subtitleName("eng", null, forced = false, captions = false))
+        assertEquals("English", PlayerMath.subtitleName("eng", "English", forced = false, captions = false))
+    }
+
+    @Test fun flags_are_named() {
+        assertEquals("English · Forced", PlayerMath.subtitleName("eng", null, forced = true, captions = false))
+        assertEquals("English · SDH", PlayerMath.subtitleName("eng", null, forced = false, captions = true))
+    }
+
+    @Test fun label_is_kept_without_repeats() {
+        assertEquals("English SDH", PlayerMath.subtitleName("eng", "English SDH", forced = false, captions = true))
+        assertEquals("English · Signs & Songs · Forced", PlayerMath.subtitleName("eng", "Signs & Songs", forced = true, captions = false))
+        assertEquals("Unknown", PlayerMath.subtitleName("und", null, forced = false, captions = false))
+    }
+}
