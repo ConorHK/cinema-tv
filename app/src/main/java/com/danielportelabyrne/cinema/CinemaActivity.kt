@@ -117,7 +117,7 @@ class CinemaActivity : AppCompatActivity() {
      * film or episode, or the stream this app saved, straight into the player; the row's key says which.
      */
     private fun handleResumeIntent(intent: android.content.Intent?) {
-        if (intent?.action != ContinueWatchingContract.ACTION_RESUME) return
+        if (intent?.action != ContinueWatchingContract.actionResume(packageName)) return
         val key = intent.getStringExtra(ContinueWatchingContract.EXTRA_KEY) ?: return
         intent.action = null
         ContinueWatchingContract.streamTitle(key)?.let { title ->

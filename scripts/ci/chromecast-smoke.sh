@@ -60,6 +60,16 @@ for step in welcome jellyfin signin seerr arr client region advanced settings; d
   tv shell am start -n "$ACTIVITY" --es debug_setup_step "$step" >/dev/null; check "setup-$step"
 done
 
+# The launcher's Continue watching row reads this provider. From the shell it is refused, because the permission is the
+# app's own, and that still shows the provider is registered and enforcing it. Not registered, or crashing, is a fault.
+# (Rows themselves need a signed-in copy; the CI build has no sign-in, so this checks the wiring, not the list.)
+rows=$(tv shell content query --uri "content://$PKG.continuewatching/items" 2>&1 | tr -d '\r' || true)
+echo "$rows" > "$OUT/continue-watching.txt"
+if echo "$rows" | grep -qE "Could not find provider|Error while accessing provider"; then
+  echo "::error::The Continue watching provider is not answering on the Chromecast; see continue-watching.txt"
+  fail=1
+fi
+
 tv logcat -d > "$OUT/logcat.txt" || true
 if tv logcat -d -b crash | grep -q "$PKG"; then
   tv logcat -d -b crash | grep -B2 -A12 "$PKG" > "$OUT/crash.txt" || true

@@ -17,21 +17,27 @@ import java.net.URL
 import java.net.URLDecoder
 import java.net.URLEncoder
 
-/** What other apps on the TV use to read Cinema's Continue watching, and to open a row. */
+/**
+ * What other apps on the TV use to read Cinema's Continue watching, and to open a row. Names follow the installed
+ * package, so the CI build (".ci" suffix) and the owner's copy can be installed side by side.
+ */
 object ContinueWatchingContract {
-    const val AUTHORITY = "com.danielportelabyrne.cinema.continuewatching"
-    /** Declared on the provider. Any app can ask for it; the data is the owner's own titles and artwork. */
-    const val PERMISSION = "com.danielportelabyrne.cinema.permission.CONTINUE_WATCHING"
-    /** Start [com.danielportelabyrne.cinema.CinemaActivity] with this action and [EXTRA_KEY] set to a row's key. */
-    const val ACTION_RESUME = "com.danielportelabyrne.cinema.action.RESUME"
     const val EXTRA_KEY = "key"
 
-    val ITEMS_URI: Uri = Uri.parse("content://$AUTHORITY/items")
-    /** Columns of [ITEMS_URI]: key, title, subtitle, progress_ms, duration_ms, last_ms, art_uri. */
+    /** Columns of the items URI: key, title, subtitle, progress_ms, duration_ms, last_ms, art_uri. */
     val COLUMNS = arrayOf("key", "title", "subtitle", "progress_ms", "duration_ms", "last_ms", "art_uri")
 
+    fun authority(packageName: String): String = "$packageName.continuewatching"
+    /** Declared on the provider. Any app can ask for it; the data is the owner's own titles and artwork. */
+    fun permission(packageName: String): String = "$packageName.permission.CONTINUE_WATCHING"
+    /** Start the app's CinemaActivity with this action and [EXTRA_KEY] set to a row's key. */
+    fun actionResume(packageName: String): String = "$packageName.action.RESUME"
+
+    fun itemsUri(packageName: String): Uri = Uri.parse("content://${authority(packageName)}/items")
+
     /** Artwork for a row, as a content address the reader opens with openInputStream. */
-    fun artUri(key: String): Uri = Uri.Builder().scheme("content").authority(AUTHORITY).appendPath("art").appendPath(key).build()
+    fun artUri(packageName: String, key: String): Uri =
+        Uri.Builder().scheme("content").authority(authority(packageName)).appendPath("art").appendPath(key).build()
 
     private const val STREAM_PREFIX = "stream:"
     private const val JELLYFIN_PREFIX = "jf:"
@@ -58,7 +64,7 @@ class ContinueWatchingProvider : ContentProvider() {
         val context = context ?: return MatrixCursor(ContinueWatchingContract.COLUMNS)
         val cursor = MatrixCursor(ContinueWatchingContract.COLUMNS)
         rows(context).forEach { r ->
-            cursor.addRow(arrayOf(r.key, r.title, r.subtitle, r.progressMs, r.durationMs, r.lastMs, ContinueWatchingContract.artUri(r.key).toString()))
+            cursor.addRow(arrayOf(r.key, r.title, r.subtitle, r.progressMs, r.durationMs, r.lastMs, ContinueWatchingContract.artUri(context.packageName, r.key).toString()))
         }
         return cursor
     }
