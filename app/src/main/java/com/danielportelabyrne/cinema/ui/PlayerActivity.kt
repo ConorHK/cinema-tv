@@ -740,7 +740,16 @@ class PlayerActivity : AppCompatActivity() {
         c.onCaptions = { toggleCaptions() }
         c.onTracks = { type ->
             val label = when (type) { C.TRACK_TYPE_AUDIO -> "Audio"; C.TRACK_TYPE_VIDEO -> "Quality"; else -> "Subtitles" }
-            runCatching { androidx.media3.ui.TrackSelectionDialogBuilder(this, label, player, type).build().show() }
+            runCatching {
+                val dialog = androidx.media3.ui.TrackSelectionDialogBuilder(this, label, player, type)
+                // The stock namer drops forced flags and track names.
+                if (type == C.TRACK_TYPE_TEXT) dialog.setTrackNameProvider { f ->
+                    com.danielportelabyrne.cinema.data.player.PlayerMath.subtitleName(f.language, f.label,
+                        forced = f.selectionFlags and C.SELECTION_FLAG_FORCED != 0,
+                        captions = f.roleFlags and (C.ROLE_FLAG_CAPTION or C.ROLE_FLAG_DESCRIBES_MUSIC_AND_SOUND) != 0)
+                }
+                dialog.build().show()
+            }
         }
         c.onPrevious = {
             // Back to the start of this chapter, or to the one before if it only just began; without chapters, the start.
