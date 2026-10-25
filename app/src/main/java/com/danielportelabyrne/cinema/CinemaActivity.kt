@@ -1,5 +1,6 @@
 package com.danielportelabyrne.cinema
 
+import com.danielportelabyrne.cinema.device.AndroidPlatform
 import android.os.Bundle
 import android.view.FocusFinder
 import android.view.KeyEvent
@@ -32,14 +33,13 @@ class CinemaActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        Perf.init(this)
         setContentView(R.layout.activity_cinema)
         overlay = findViewById(R.id.moviesOverlay)
         infoSheet = InfoSheet(findViewById(R.id.infoSheet))
-        val settings = CinemaSettings(this)
+        val settings = CinemaSettings(AndroidPlatform(this))
         Catalog.country = settings.region
-        val jellyfin = JellyfinClient(this)
-        val seerr = SeerrClient(this)
+        val jellyfin = JellyfinClient(AndroidPlatform(this))
+        val seerr = SeerrClient(AndroidPlatform(this))
         setup = SetupFlow(this, findViewById(R.id.setupHost), infoSheet, jellyfin, seerr, settings) { changed ->
             if (changed) { moviesPanel.reload(); if (moviesPanel.isVisible) moviesPanel.hide() }
             if (!moviesPanel.isVisible) moviesPanel.show()

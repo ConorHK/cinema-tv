@@ -3,6 +3,7 @@ package com.danielportelabyrne.cinema.data.letterboxd
 import android.app.Activity
 import android.os.Handler
 import android.os.Looper
+import com.danielportelabyrne.cinema.device.AndroidPlatform
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -18,7 +19,7 @@ import java.util.concurrent.Executors
 class LetterboxdRepository(activity: Activity, allowBrowser: Boolean = true) {
     val web = LetterboxdWeb(activity, allowBrowser)
     private val dir = File(activity.cacheDir, "letterboxd").apply { mkdirs() }
-    private val prefs = activity.getSharedPreferences(PREFS, Activity.MODE_PRIVATE)
+    private val prefs = activity.getSharedPreferences(LetterboxdPages.PREFS, Activity.MODE_PRIVATE)
     private val main = Handler(Looper.getMainLooper())
     private val pool = Executors.newFixedThreadPool(2)
     private val pages = PageCache(dir, { path -> web.page(path)?.let { slim(it) } })
@@ -116,27 +117,11 @@ class LetterboxdRepository(activity: Activity, allowBrowser: Boolean = true) {
     fun close() { main.removeCallbacks(saveTask); pages.close(); pool.shutdownNow(); web.close() }
 
     companion object {
-        /** Nobody to begin with: the owner follows whoever they like from the Letterboxd page. */
-        val DEFAULT = emptyList<String>()
-        private const val PREFS = "letterboxd_follow"
-
-        /** How many people are followed, without opening the page cache (for Settings). */
-        fun followingCount(context: android.content.Context): Int = try {
-            context.getSharedPreferences(PREFS, android.content.Context.MODE_PRIVATE).getString("users", null)?.let { JSONArray(it).length() } ?: DEFAULT.size
-        } catch (_: Exception) { 0 }
-
-        /** Unfollows everyone (Settings, Reset everything). */
-        fun forgetFollowing(context: android.content.Context) {
-            context.getSharedPreferences(PREFS, android.content.Context.MODE_PRIVATE).edit().remove("users").apply()
-        }
-        const val MINUTE = 60_000L
-        const val HOUR = 60 * MINUTE
-
-        /** Drops scripts, styles and inline drawings: a review page goes from 1.4 MB to a fraction of that. */
-        fun slim(html: String): String = html
-            // Every script but the film's data block (its rating, and how many have rated and reviewed it).
-            .replace(Regex("<script\\b(?![^>]*application/ld\\+json).*?</script>", RegexOption.DOT_MATCHES_ALL), "")
-            .replace(Regex("<style\\b.*?</style>", RegexOption.DOT_MATCHES_ALL), "")
-            .replace(Regex("<svg\\b(?:(?!aria-label=\"(?:[★½]+|Liked)\").)*?</svg>", RegexOption.DOT_MATCHES_ALL), "")
+        val DEFAULT get() = LetterboxdPages.DEFAULT
+        const val MINUTE = LetterboxdPages.MINUTE
+        const val HOUR = LetterboxdPages.HOUR
+        fun followingCount(context: android.content.Context): Int = LetterboxdPages.followingCount(AndroidPlatform(context))
+        fun forgetFollowing(context: android.content.Context) = LetterboxdPages.forgetFollowing(AndroidPlatform(context))
+        fun slim(html: String): String = LetterboxdPages.slim(html)
     }
 }

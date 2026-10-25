@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.danielportelabyrne.Cinema</id>
+  <name>Cinema</name>
+  <summary>Your Jellyfin library, made for the couch</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <developer id="io.github.danielportelabyrne">
+    <name>Daniel Portela Byrne</name>
+  </developer>
+  <description>
+    <p>
+      Cinema brings your Jellyfin films and series to a desktop or a Steam Deck, with the same look as Cinema for
+      Android TV. Everything works with a game controller: browse, search with the on-screen keyboard, and play.
+      Video plays in mpv, and how far you got is sent back to Jellyfin, so you can carry on from any device.
+    </p>
+  </description>
+  <launchable type="desktop-id">io.github.danielportelabyrne.Cinema.desktop</launchable>
+  <url type="homepage">https://github.com/DanielPortelaByrne/cinema-tv</url>
+  <content_rating type="oars-1.1"/>
+  <supports>
+    <control>gamepad</control>
+    <control>keyboard</control>
+    <control>pointing</control>
+    <control>touch</control>
+  </supports>
+  <releases>
+    <release version="1.0.0" date="2026-10-24"/>
+  </releases>
+</component>

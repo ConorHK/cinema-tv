@@ -1,5 +1,6 @@
 package com.danielportelabyrne.cinema.ui
 
+import com.danielportelabyrne.cinema.device.AndroidPlatform
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
@@ -90,7 +91,7 @@ class PlayerActivity : AppCompatActivity() {
     private var episodeGeneration = 0
     private var foreground = false
     private val episodeLookup = java.util.concurrent.Executors.newSingleThreadExecutor()
-    private val jellyfin by lazy { JellyfinClient(this) }
+    private val jellyfin by lazy { JellyfinClient(AndroidPlatform(this)) }
     private val cancelNext = object : OnBackPressedCallback(false) {
         override fun handleOnBackPressed() { cancelAutoplay() }
     }
@@ -180,7 +181,7 @@ class PlayerActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        Perf.init(this); Perf.mark("player.create")
+        Perf.mark("player.create")
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         items = parse(intent.getStringExtra(EXTRA_ITEMS))
         imdbId = intent.getStringExtra(EXTRA_IMDB)
