@@ -75,7 +75,9 @@ done
 # (Rows themselves need a signed-in copy; the CI build has no sign-in, so this checks the wiring, not the list.)
 rows=$(tv shell content query --uri "content://$PKG.continuewatching/items" 2>&1 | tr -d '\r' || true)
 echo "$rows" > "$OUT/continue-watching.txt"
-if echo "$rows" | grep -qE "Could not find provider|Error while accessing provider"; then
+# Android also prints "Error while accessing provider" with the denial, so only a missing provider or an error other
+# than the denial counts as a fault.
+if echo "$rows" | grep -q "Could not find provider" || { echo "$rows" | grep -q "Error while accessing provider" && ! echo "$rows" | grep -q "Permission Denial"; }; then
   echo "::error::The Continue watching provider is not answering on the Chromecast; see continue-watching.txt"
   fail=1
 fi
