@@ -1,22 +1,19 @@
 package com.danielportelabyrne.cinema.ui
 
-import android.content.Context
-import android.content.pm.ApplicationInfo
-import android.os.SystemClock
-import android.util.Log
+import com.danielportelabyrne.cinema.platform.Log
 
 /**
  * Timing marks for the Movies performance work (`docs/movies-performance-plan-2026-10-23.md`), logged under the
- * "Perf" tag in debug builds only. Each mark carries the elapsed-realtime clock, so a press in one activity and the
- * first frame in another can be subtracted from the log.
+ * "Perf" tag in debug builds only. Each mark carries the clock's reading, so a press in one activity and the
+ * first frame in another can be subtracted from the log. The app turns it on ([enabled]) for a debuggable build and
+ * points [clock] at a monotonic clock that suits it (the TV uses elapsed realtime).
  */
 object Perf {
-    @Volatile private var enabled = false
+    @Volatile var enabled = false
+    @Volatile var clock: () -> Long = { System.nanoTime() / 1_000_000 }
     private val starts = HashMap<String, Long>()
 
-    fun init(context: Context) { enabled = context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0 }
-
-    fun now(): Long = SystemClock.elapsedRealtime()
+    fun now(): Long = clock()
 
     /** A named point in time. */
     fun mark(event: String) { if (enabled) Log.i("Perf", "$event @${now()}") }

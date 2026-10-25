@@ -181,7 +181,7 @@ class PlayerActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        Perf.init(this); Perf.mark("player.create")
+        Perf.mark("player.create")
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         items = parse(intent.getStringExtra(EXTRA_ITEMS))
         imdbId = intent.getStringExtra(EXTRA_IMDB)
@@ -721,10 +721,11 @@ class PlayerActivity : AppCompatActivity() {
         val r = jf ?: return
         val (sheet, x, y) = t.tile(ms)
         fun crop(b: Bitmap) {
-            if (x + t.width > b.width || y + t.height > b.height) return
+            if (x + t.width > b.width || y + t.height > b.height) { Perf.mark("trickplay sheet $sheet is ${b.width}x${b.height}, tile at $x,$y misses"); return }
             done(Bitmap.createBitmap(b, x, y, t.width, t.height))
         }
         trickplaySheets.get(sheet)?.let { crop(it); return }
+        Perf.mark("trickplay sheet $sheet for $ms ms (${t.width}px ${t.tileWidth}x${t.tileHeight})")
         val url = com.danielportelabyrne.cinema.data.jellyfin.JellyfinApi.trickplayUrl(r.base, itemId, t.width, sheet, r.sourceId)
         chromeImages.load(url, jellyfin.playbackHeaders(), maxWidth = t.width * t.tileWidth) { b -> trickplaySheets.put(sheet, b); crop(b) }
     }

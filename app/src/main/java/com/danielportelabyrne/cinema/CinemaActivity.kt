@@ -15,6 +15,7 @@ import com.danielportelabyrne.cinema.data.movies.Catalog
 import com.danielportelabyrne.cinema.data.movies.SeerrClient
 import com.danielportelabyrne.cinema.data.settings.CinemaSettings
 import com.danielportelabyrne.cinema.ui.MoviesPanel
+import com.danielportelabyrne.cinema.ui.Perf
 import com.danielportelabyrne.cinema.ui.room.InfoSheet
 import com.danielportelabyrne.cinema.ui.room.JellyfinConnectSheet
 import com.danielportelabyrne.cinema.ui.room.SeerrSignInSheet

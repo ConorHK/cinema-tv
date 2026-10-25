@@ -40,3 +40,8 @@ local.properties
 keystore.properties
 *.jks
 *.keystore
+
+# Nix
+result
+result-*
+*.idsig

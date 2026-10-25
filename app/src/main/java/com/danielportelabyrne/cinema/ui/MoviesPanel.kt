@@ -2780,24 +2780,40 @@ class MoviesPanel(
         val box = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL; clipChildren = false; clipToPadding = false }
         parent.addView(box, LinearLayout.LayoutParams(-1, -2).apply { topMargin = Cinema.px(activity, 60) })
         box.addView(note("Loading seasons…"))
+        Perf.begin("seasons.draw")
         worker.execute {
+            // Jellyfin and Seerr first: Sonarr and the download queue can be slow or unreachable, so they fill in after.
             val owned = e.library?.let { jellyfin.episodes(it.id) }.orEmpty()
             val signedIn = tmdb != null && seerr.isSignedIn
-            val states = (if (signedIn) sonarr.episodeStates(tmdb!!) else emptyMap()).toMutableMap()
-            // Episodes on disk that Jellyfin has not yet picked up: ask it to scan (at most every ten minutes), so they turn into Play.
-            val unscanned = states.any { (k, v) -> v == EpisodeState.DOWNLOADED && owned.none { it.season == k.first && it.episode == k.second } }
-            if (unscanned && System.currentTimeMillis() - lastScanMs > 10 * 60_000L) { lastScanMs = System.currentTimeMillis(); jellyfin.refreshLibrary() }
             val fromSeerr = if (signedIn) seerr.seasons(tmdb!!) else emptyList()
             val seasons = fromSeerr.map { SeasonState(it.number, it.name, it.episodeCount, it.availability) }.ifEmpty {
                 owned.mapNotNull { it.season }.filter { it > 0 }.distinct().sorted().map { n -> SeasonState(n, "Season $n", owned.count { it.season == n }, Availability.AVAILABLE) }
             }
-            // What is downloading right now, so a card can show how far its episode has got.
-            val busy = states.values.any { it == EpisodeState.REQUESTED } || seasons.any { it.availability == Availability.PROCESSING || it.availability == Availability.DOWNLOADING || it.availability == Availability.PARTIAL }
-            val downloads = if (signedIn && busy) queueClient.items().orEmpty().filter { it.tmdbId == tmdb } else emptyList()
+            val states = HashMap<Pair<Int, Int>, EpisodeState>()
+            val downloads = ArrayList<QueueItem>()
+            var refresh: () -> Unit = {}
             activity.runOnUiThread {
                 if (!detailOpen || !box.isAttachedToWindow) return@runOnUiThread
-                drawSeasons(box, e, tmdb, seasons, owned, states, downloads)
+                refresh = drawSeasons(box, e, tmdb, seasons, owned, states, downloads)
                 resumeOnHero(primary, e, owned)
+                Perf.end("seasons.draw", "${owned.size} episodes, ${seasons.size} seasons")
+            }
+            if (!signedIn) return@execute
+            Perf.begin("seasons.arr")
+            val known = sonarr.episodeStates(tmdb!!)
+            // Episodes on disk that Jellyfin has not yet picked up: ask it to scan (at most every ten minutes), so they turn into Play.
+            val unscanned = known.any { (k, v) -> v == EpisodeState.DOWNLOADED && owned.none { it.season == k.first && it.episode == k.second } }
+            if (unscanned && System.currentTimeMillis() - lastScanMs > 10 * 60_000L) { lastScanMs = System.currentTimeMillis(); jellyfin.refreshLibrary() }
+            // What is downloading right now, so a card can show how far its episode has got.
+            val busy = known.values.any { it == EpisodeState.REQUESTED } || seasons.any { it.availability == Availability.PROCESSING || it.availability == Availability.DOWNLOADING || it.availability == Availability.PARTIAL }
+            val active = if (busy) queueClient.items().orEmpty().filter { it.tmdbId == tmdb } else emptyList()
+            Perf.end("seasons.arr", "${known.size} states, ${active.size} downloads")
+            if (known.isEmpty() && active.isEmpty()) return@execute
+            activity.runOnUiThread {
+                if (!detailOpen || !box.isAttachedToWindow) return@runOnUiThread
+                known.forEach { (k, v) -> states.putIfAbsent(k, v) }
+                downloads.addAll(active)
+                refresh()
             }
         }
     }
@@ -2811,12 +2827,13 @@ class MoviesPanel(
         primary.setOnClickListener { playbackStarted = true; remember(e.title, streamed = false); JellyfinPlayback.play(activity, jellyfin, ep, "${e.title.name} · S${ep.season} E${ep.episode}", "jf:${ep.id}") }
     }
 
+    /** Returns a redraw of the shown season, for when Sonarr's episode states or downloads arrive later. */
     private fun drawSeasons(box: LinearLayout, e: Entry, tmdb: Long?, seasons: List<SeasonState>, owned: List<JellyfinItem>,
-                            states: MutableMap<Pair<Int, Int>, EpisodeState>, downloads: List<QueueItem>) {
+                            states: MutableMap<Pair<Int, Int>, EpisodeState>, downloads: List<QueueItem>): () -> Unit {
         box.removeAllViews()
         if (seasons.isEmpty()) {
             box.addView(note(if (!seerr.isSignedIn && e.library == null) "Press Queue download to sign in, then the seasons and episodes will be listed here." else "No season information available."))
-            return
+            return {}
         }
         // The season bar (`.sbar`): stripe marker, the tabs, then the season's counts and its action on the right.
         val bar = LinearLayout(activity).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; clipChildren = false; clipToPadding = false }
@@ -3059,6 +3076,8 @@ class MoviesPanel(
             tabRow.addView(tab, LinearLayout.LayoutParams(-2, Cinema.px(activity, 62)).apply { if (i > 0) marginStart = Cinema.px(activity, 10) })
         }
         showSeason(seasons.first())
+        // Rebuilding under a focused card or action would drop focus; the next season switch picks the states up.
+        return { if (!rail.inner.hasFocus() && !actionSlot.hasFocus()) showSeason(shown) }
     }
 
     // --- Category tiles ------------------------------------------------------------------------
