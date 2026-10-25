@@ -208,6 +208,12 @@ class JellyfinClient(platform: Platform) {
      */
     fun deleteItem(itemId: String): Boolean = request("DELETE", JellyfinApi.cleanBase(server) + "/Items/" + java.net.URLEncoder.encode(itemId, "UTF-8")) != null
 
+    /** Marks a film, an episode or a whole series watched or not. True when Jellyfin accepted it. */
+    fun setPlayed(itemId: String, played: Boolean): Boolean {
+        val uid = userId ?: return false
+        return request(if (played) "POST" else "DELETE", JellyfinApi.playedUrl(JellyfinApi.cleanBase(server), uid, itemId)) != null
+    }
+
     /** How much space the library takes, in bytes; null when Jellyfin cannot be reached. */
     fun libraryBytes(): Long? {
         val uid = userId ?: return null

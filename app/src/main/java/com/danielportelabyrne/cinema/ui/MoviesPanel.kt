@@ -302,11 +302,48 @@ class MoviesPanel(
         }, RETURN_REFRESH_DELAY_MS)
     }
 
-    private fun refreshWatchState(gen: Int, items: List<JellyfinItem>) {
+    /** After a watched mark: fetch the library again, so the rows and the featured title follow. */
+    private fun markedWatched() {
+        val gen = generation
+        worker.execute {
+            val items = jellyfin.library(force = true)
+            ui.post { if (isVisible) refreshWatchState(gen, items, redrawDetail = false) }
+        }
+    }
+
+    private var marking = false
+
+    /** Marks a library title watched or not. A series asks first: it changes every episode. */
+    private fun markTitle(e: Entry, lib: JellyfinItem) {
+        val played = !lib.played
+        fun mark() {
+            // Not disabled: a disabled button drops focus, and nothing on the page takes it back.
+            if (marking) return
+            marking = true
+            worker.execute {
+                val done = jellyfin.setPlayed(lib.id, played)
+                activity.runOnUiThread {
+                    marking = false
+                    if (!done) { Toast.makeText(activity, "Couldn't reach Jellyfin", Toast.LENGTH_SHORT).show(); return@runOnUiThread }
+                    e.library = lib.copy(played = played, resumeMs = 0L)
+                    if (detailOpen && detailEntry === e) detailButtons?.invoke()
+                    markedWatched()
+                }
+            }
+        }
+        if (!lib.isSeries) { mark(); return }
+        val label = if (played) "Mark watched" else "Mark unwatched"
+        infoSheet.show(label.uppercase(), e.title.name, null,
+            listOf(if (played) "Every episode is marked watched." else "Every episode is marked unwatched, and resume points are cleared."), null, listOf(
+                SheetAction(label, primary = true) { mark() },
+                SheetAction("Cancel") { }))
+    }
+
+    private fun refreshWatchState(gen: Int, items: List<JellyfinItem>, redrawDetail: Boolean = true) {
         val byId = items.associateBy { it.id }
         fun renew(e: Entry) { e.library?.let { old -> byId[old.id]?.let { e.library = it } } }
         heroEntries.forEach(::renew)
-        detailEntry?.let { e -> renew(e); detailButtons?.invoke() }
+        detailEntry?.let { e -> renew(e); if (redrawDetail) detailButtons?.invoke() }
         if (gen == generation && heroSet) showHero(heroIndex)
     }
 
@@ -2489,6 +2526,7 @@ class MoviesPanel(
         val clearStale = CinemaButton(activity, CinemaButton.Kind.GLASS, "Clear stale request").apply { visibility = View.GONE }
         // A part-watched library film: Continue (the primary) and Restart from the beginning.
         val restart = CinemaButton(activity, CinemaButton.Kind.GLASS, "Restart", R.drawable.ic_cin_play).apply { visibility = View.GONE }
+        val mark = CinemaButton(activity, CinemaButton.Kind.GLASS, "Mark watched", R.drawable.ic_cin_eye_off).apply { visibility = if (inLibrary) View.VISIBLE else View.GONE }
         // Not in the library: play a seeded copy now, instead of waiting for a download to finish.
         val stream = CinemaButton(activity, CinemaButton.Kind.GLASS, "Stream now", R.drawable.ic_cin_play).apply {
             visibility = if (!inLibrary && t.kind == Kind.MOVIE && seerr.hasStreamService) View.VISIBLE else View.GONE
@@ -2499,6 +2537,7 @@ class MoviesPanel(
         buttons.addView(restart, LinearLayout.LayoutParams(-2, h).apply { marginStart = gap })
         buttons.addView(stream, LinearLayout.LayoutParams(-2, h).apply { marginStart = gap })
         buttons.addView(clearStale, LinearLayout.LayoutParams(-2, h).apply { marginStart = gap })
+        buttons.addView(mark, LinearLayout.LayoutParams(-2, h).apply { marginStart = gap })
         // Anything on disk can be taken off it, a series or a film, from its own page.
         if (inLibrary) buttons.addView(CinemaButton(activity, CinemaButton.Kind.DANGER, "Delete", R.drawable.ic_cin_trash).apply { setOnClickListener { confirmDelete(e) } },
             LinearLayout.LayoutParams(-2, h).apply { marginStart = gap })
@@ -2532,13 +2571,13 @@ class MoviesPanel(
             column.setPadding(column.paddingLeft, column.paddingTop, column.paddingRight, Cinema.px(activity, 520))
             detailScrolledState(scroll, moreHeading!!, r.scroller, t, topRow)
         }
-        setupPrimary(primary, e, clearStale, restart) { openDetail(e, related) }
+        setupPrimary(primary, e, clearStale, restart, mark) { openDetail(e, related) }
         // A film that can only be streamed: have the stream service search for it now, so Stream now starts quicker.
         if (!inLibrary && t.kind == Kind.MOVIE && seerr.isSignedIn) slowPool.execute { seerr.prepareStream(t.name, t.year, runtimeMin = t.runtimeMin) }
         detailEntry = e
         // A series' progress lives on its episode cards, so its page is drawn again; a film just redoes its buttons.
         detailButtons = if (t.kind == Kind.SHOW) ({ val back = returnFocus; closeDetail(restoreFocus = false); openDetail(e, related); returnFocus = back })
-            else ({ setupPrimary(primary, e, clearStale, restart) { openDetail(e, related) } })
+            else ({ setupPrimary(primary, e, clearStale, restart, mark) { openDetail(e, related) } })
         // The title page covers the screen, so the page beneath it is not drawn at all while it is open (it keeps its
         // place and its scroll position, so Back returns to exactly where it was).
         body.visibility = View.INVISIBLE
@@ -2589,7 +2628,7 @@ class MoviesPanel(
     private var detailEntry: Entry? = null
     private var detailButtons: (() -> Unit)? = null
 
-    private fun setupPrimary(button: CinemaButton, e: Entry, clearStale: CinemaButton, restart: CinemaButton? = null, refresh: () -> Unit) {
+    private fun setupPrimary(button: CinemaButton, e: Entry, clearStale: CinemaButton, restart: CinemaButton? = null, mark: CinemaButton? = null, refresh: () -> Unit) {
         fun set(label: String, enabled: Boolean, action: (() -> Unit)?) {
             button.setText(label); button.isEnabled = enabled
             // Terracotta only while there is something to queue; a request already on its way rests as glass.
@@ -2605,6 +2644,9 @@ class MoviesPanel(
             set(WatchProgress.label(actions.first(), state), true) { watch(lib, e.title) }
             restart?.visibility = if (FilmAction.RESTART in actions) View.VISIBLE else View.GONE
             restart?.setOnClickListener { watch(lib, e.title, fromStart = true) }
+            mark?.setText(if (lib.played) "Mark unwatched" else "Mark watched")
+            mark?.setIcon(if (lib.played) R.drawable.ic_cin_eye else R.drawable.ic_cin_eye_off)
+            mark?.setOnClickListener { markTitle(e, lib) }
             return
         }
         val tmdb = e.title.tmdbId?.toLongOrNull()
@@ -2630,7 +2672,7 @@ class MoviesPanel(
             activity.runOnUiThread {
                 if (!detailOpen || !button.isAttachedToWindow) return@runOnUiThread
                 if (state == null) {
-                    set("Retry status check", true) { setupPrimary(button, e, clearStale, restart, refresh) }
+                    set("Retry status check", true) { setupPrimary(button, e, clearStale, restart, mark, refresh) }
                     return@runOnUiThread
                 }
                 if (state.staleCandidate && seerr.hasRequestHelper) {
@@ -2915,21 +2957,29 @@ class MoviesPanel(
             val label = "${e.title.name} · S${s.number} E${ep.number}"
             var look = episodeCardState(mine != null, states[s.number to ep.number], s.availability, ep.airDate, today, tmdb != null,
                 EpisodeCards.download(downloads, tmdb, s.number, ep.number))
+            // Follows watched marks made on this card.
+            var item = mine
+            card.markable = mine != null
             fun rebind() {
                 card.bind(look, EpisodeCards.formatDate(ep.airDate)?.uppercase() ?: "TBA")
                 card.tipText = when (look.state) {
                     CardState.REQUEST -> "Download S${s.number} E${ep.number}"
                     CardState.UNAIRED -> EpisodeCards.preRequestTip(s.number, ep.number)
+                    CardState.LIBRARY -> if (item == null) null else if (card.watched) "Mark unwatched" else "Mark watched"
                     else -> null
                 }
             }
-            rebind()
             val runtime = mine?.runtimeMin ?: ep.runtime
-            val resume = mine?.takeIf { !it.played }?.let { EpisodeCards.resume(it.resumeMs, runtime) }
-            card.setMeta(EpisodeCards.metaParts(runtime, resume?.second, ep.airDate))
-            val progress = mine?.let { WatchProgress.of(it.played, it.resumeMs, runtime) } ?: WatchState.NotStarted
-            card.setResume(WatchProgress.episodeBar(progress))
-            card.watched = WatchProgress.episodeShowsTick(progress)
+            fun showProgress() {
+                val now = item
+                val resume = now?.takeIf { !it.played }?.let { EpisodeCards.resume(it.resumeMs, runtime) }
+                card.setMeta(EpisodeCards.metaParts(runtime, resume?.second, ep.airDate))
+                val progress = now?.let { WatchProgress.of(it.played, it.resumeMs, runtime) } ?: WatchState.NotStarted
+                card.setResume(WatchProgress.episodeBar(progress))
+                card.watched = WatchProgress.episodeShowsTick(progress)
+            }
+            showProgress()
+            rebind()
             // The library's own still when it has one (sent with the Jellyfin sign-in), otherwise TMDB's.
             val (url, headers) = when {
                 mine?.hasPrimaryImage == true -> jellyfin.episodeImageUrl(mine.id) to jellyfin.playbackHeaders()
@@ -2940,8 +2990,24 @@ class MoviesPanel(
             else images.load(url, headers, maxWidth = Cinema.px(activity, 400)) { b -> if (token == loading) card.setStill(b) }
 
             card.play.setOnClickListener { v ->
-                if (mine != null) { playbackStarted = true; remember(e.title, streamed = false); JellyfinPlayback.play(activity, jellyfin, mine, label, "jf:${mine.id}") }
+                val now = item
+                if (now != null) { playbackStarted = true; remember(e.title, streamed = false); JellyfinPlayback.play(activity, jellyfin, now, label, "jf:${now.id}") }
                 else streamNow(e, v, s.number to ep.number, label)
+            }
+            card.mark.setOnClickListener {
+                val now = item ?: return@setOnClickListener
+                val played = !card.watched
+                card.mark.isClickable = false
+                worker.execute {
+                    val done = jellyfin.setPlayed(now.id, played)
+                    activity.runOnUiThread {
+                        card.mark.isClickable = true
+                        if (!done) { Toast.makeText(activity, "Couldn't reach Jellyfin", Toast.LENGTH_SHORT).show(); return@runOnUiThread }
+                        item = now.copy(played = played, resumeMs = 0L)
+                        if (token == loading) { showProgress(); rebind() }
+                        markedWatched()
+                    }
+                }
             }
             card.download.setOnClickListener {
                 when (look.state) {
