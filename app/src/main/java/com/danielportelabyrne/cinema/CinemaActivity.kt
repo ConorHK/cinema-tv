@@ -89,12 +89,33 @@ class CinemaActivity : AppCompatActivity() {
             handleDebugIntent(intent)
             handleResumeIntent(intent)
         }
-        if (preset?.needsSignIn == true) {
+        val testAccount = debugTestAccount(intent)
+        if (testAccount != null) {
+            Thread {
+                jellyfin.setServer(testAccount.server)
+                if (jellyfin.signInByName(testAccount.username, testAccount.password) == null) settings.setupDone = true
+                runOnUiThread { if (!isDestroyed) start() }
+            }.start()
+        } else if (preset?.needsSignIn == true) {
             Thread {
                 preset.signIn(jellyfin, seerr)
                 runOnUiThread { if (!isDestroyed) start() }
             }.start()
         } else start()
+    }
+
+    private class TestAccount(val server: String, val username: String, val password: String)
+
+    /**
+     * Debug builds only: a Jellyfin test account passed as intent extras by the device smoke test, so its password is
+     * never in the APK. Release builds ignore these extras.
+     */
+    private fun debugTestAccount(intent: android.content.Intent?): TestAccount? {
+        if (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE == 0) return null
+        val server = intent?.getStringExtra("debug_jellyfin_server") ?: return null
+        val username = intent.getStringExtra("debug_jellyfin_username") ?: return null
+        val password = intent.getStringExtra("debug_jellyfin_password") ?: return null
+        return TestAccount(server, username, password)
     }
 
     /** Where focus was in Cinema before a sign-in step opened over it, so it comes back to the same button. */
