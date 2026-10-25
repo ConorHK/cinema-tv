@@ -1,5 +1,6 @@
 package com.danielportelabyrne.cinema.data.movies
 
+import com.danielportelabyrne.cinema.data.exchange
 import java.net.HttpURLConnection
 import java.net.URI
 import java.net.URL
@@ -121,11 +122,11 @@ internal fun httpTransport(baseUrl: String) = HttpTransport { method, path, body
         connection.connectTimeout = 6000; connection.readTimeout = 15000
         headers.forEach { (k, v) -> connection.setRequestProperty(k, v) }
         if (body != null) connection.doOutput = true
-        try {
+        connection.exchange {
             if (body != null) connection.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
             val code = connection.responseCode
             val text = if (code in 200..299) connection.inputStream.bufferedReader().use { it.readText() } else ""
             HttpReply(code, text, connection.headerFields.filterKeys { it != null })
-        } finally { connection.disconnect() }
+        }
     } catch (_: Exception) { HttpReply(0) }
 }

@@ -1,5 +1,6 @@
 package com.danielportelabyrne.cinema.data.movies
 
+import com.danielportelabyrne.cinema.data.exchange
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
@@ -156,12 +157,12 @@ internal class QbitClient(
                 connection.doOutput = true
                 connection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
             }
-            try {
+            connection.exchange {
                 if (body != null) connection.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
                 val code = connection.responseCode
                 val text = if (code in 200..299) connection.inputStream.bufferedReader().use { it.readText() } else ""
                 QbitReply(code, text, connection.headerFields.entries.filter { it.key.equals("Set-Cookie", true) }.flatMap { it.value })
-            } finally { connection.disconnect() }
+            }
         }
     }
 }

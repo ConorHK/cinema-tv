@@ -47,6 +47,8 @@ android {
     namespace = "com.danielportelabyrne.cinema"
     compileSdk = 36
 
+    androidResources { noCompress += "ttf" }
+
     defaultConfig {
         applicationId = "com.danielportelabyrne.cinema"
         minSdk = 24

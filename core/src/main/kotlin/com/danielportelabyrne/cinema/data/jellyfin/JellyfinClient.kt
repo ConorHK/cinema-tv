@@ -1,12 +1,16 @@
 package com.danielportelabyrne.cinema.data.jellyfin
 
+import com.danielportelabyrne.cinema.data.exchange
 import com.danielportelabyrne.cinema.platform.Log
 import com.danielportelabyrne.cinema.platform.Platform
 import com.danielportelabyrne.cinema.ui.Perf
 import org.json.JSONObject
+import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.UUID
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 
 private const val TAG = "Jellyfin"
 
@@ -24,6 +28,7 @@ class JellyfinClient(platform: Platform) {
 
     private val deviceId: String = prefs.getString("deviceId", null) ?: UUID.randomUUID().toString().also { prefs.edit().putString("deviceId", it).apply() }
     private val deviceName: String = platform.deviceName
+    private val libraryFiles = File(platform.cacheDir, "jellyfin")
 
     /** The server's address, or "" before setup has given one. */
     val server: String get() = debugServer ?: prefs.getString("server", null).orEmpty()
@@ -112,6 +117,10 @@ class JellyfinClient(platform: Platform) {
     @Volatile private var libraryAt = 0L
 
     private val libraryFlight = SingleFlight<List<JellyfinItem>>()
+    @Volatile private var restored = false
+    private val refreshing = AtomicBoolean(false)
+
+    @Volatile var onLibraryChanged: (() -> Unit)? = null
 
     /** When the library was last fetched (0 = never). Lets a page tell whether badges need another look. */
     val libraryLoadedAt: Long get() = libraryAt
@@ -123,21 +132,60 @@ class JellyfinClient(platform: Platform) {
      */
     fun library(force: Boolean = false): List<JellyfinItem> {
         val uid = userId ?: return emptyList()
+        if (!restored) synchronized(libraryFiles) { if (!restored) { restoreLibrary(uid); restored = true } }
         if (!force && libraryAt != 0L && System.currentTimeMillis() - libraryAt < LIBRARY_TTL_MS) return library
         // The server was unreachable a moment ago: answer from what we have rather than making every caller wait again.
         if (!force && reachability.backingOff) return library
-        return libraryFlight.run {
-            fetchLibrary(uid)?.let { library = it; libraryAt = System.currentTimeMillis() }
-            library
+        if (!force && libraryAt != 0L && library.isNotEmpty()) { refreshLater(uid); return library }
+        return fetchNow(uid)
+    }
+
+    private fun fetchNow(uid: String): List<JellyfinItem> = libraryFlight.run {
+        fetchLibrary(uid)?.let { library = it; libraryAt = System.currentTimeMillis() }
+        library
+    }
+
+    private fun refreshLater(uid: String) {
+        if (!refreshing.compareAndSet(false, true)) return
+        refresher.execute {
+            try {
+                val before = library
+                if (fetchNow(uid) != before) onLibraryChanged?.invoke()
+            } finally { refreshing.set(false) }
         }
     }
 
     /** Null when the server cannot be asked. Without play dates it still sorts by date added. */
     private fun fetchLibrary(uid: String): List<JellyfinItem>? {
         val base = JellyfinApi.cleanBase(server)
-        val items = request("GET", JellyfinApi.libraryUrl(base, uid))?.let { JellyfinApi.parseItems(it) } ?: return null
-        val played = request("GET", JellyfinApi.recentlyPlayedUrl(base, uid))?.let { JellyfinApi.parseItems(it) }.orEmpty()
-        return JellyfinApi.withPlays(items, played)
+        val itemsJson = request("GET", JellyfinApi.libraryUrl(base, uid)) ?: return null
+        val items = JellyfinApi.parseItems(itemsJson)
+        val playedJson = request("GET", JellyfinApi.recentlyPlayedUrl(base, uid))
+        saveLibrary(uid, itemsJson, playedJson)
+        return JellyfinApi.withPlays(items, playedJson?.let { JellyfinApi.parseItems(it) }.orEmpty())
+    }
+
+    private fun libraryKey(uid: String) = "${JellyfinApi.cleanBase(server)}|$uid"
+
+    private fun saveLibrary(uid: String, itemsJson: String, playedJson: String?) {
+        try {
+            libraryFiles.mkdirs()
+            val tmp = File(libraryFiles, "library.tmp")
+            tmp.writeText("${libraryKey(uid)}\n${System.currentTimeMillis()}\n${itemsJson.replace('\n', ' ')}\n${playedJson?.replace('\n', ' ').orEmpty()}")
+            val target = File(libraryFiles, "library.txt")
+            if (!tmp.renameTo(target) && !(target.delete() && tmp.renameTo(target))) tmp.delete()
+        } catch (e: Exception) { Log.w(TAG, "library not saved: ${e.javaClass.simpleName}") }
+    }
+
+    private fun restoreLibrary(uid: String) {
+        try {
+            val lines = File(libraryFiles, "library.txt").takeIf { it.exists() }?.readLines() ?: return
+            if (lines.size < 3 || lines[0] != libraryKey(uid)) return
+            val items = JellyfinApi.parseItems(lines[2]).takeIf { it.isNotEmpty() } ?: return
+            val played = lines.getOrNull(3)?.takeIf { it.isNotBlank() }?.let { JellyfinApi.parseItems(it) }.orEmpty()
+            library = JellyfinApi.withPlays(items, played)
+            libraryAt = lines[1].toLong()
+        } catch (e: Exception) { Log.w(TAG, "saved library unreadable: ${e.javaClass.simpleName}") }
     }
 
     /** Films and episodes part-watched, most recently watched first. Blocking; empty when signed out or unreachable. */
@@ -270,6 +318,7 @@ class JellyfinClient(platform: Platform) {
         @Volatile var debugServer: String? = null
         private const val LIBRARY_TTL_MS = 5 * 60_000L
         private const val UNREACHABLE_BACKOFF_MS = 30_000L
+        private val refresher = Executors.newSingleThreadExecutor { r -> Thread(r, "library-refresh").apply { isDaemon = true; priority = Thread.MIN_PRIORITY } }
     }
 
     // --- Plumbing --------------------------------------------------------------------------------
@@ -300,7 +349,7 @@ class JellyfinClient(platform: Platform) {
             connection.setRequestProperty("Authorization", JellyfinApi.authHeader(deviceId, deviceName, if (authed) token else null))
             connection.setRequestProperty("Accept", "application/json")
             if (json != null) { connection.doOutput = true; connection.setRequestProperty("Content-Type", "application/json") }
-            try {
+            connection.exchange {
                 // Connecting separately tells a server that never answers (asleep) from one that is only slow to reply.
                 connection.connect(); connected = true; reachability.reached()
                 if (json != null) connection.outputStream.use { it.write(json.toByteArray()) }
@@ -310,7 +359,7 @@ class JellyfinClient(platform: Platform) {
                     code !in 200..299 -> { Log.w(TAG, "$method ${url.substringBefore('?')} -> HTTP $code"); null }
                     else -> connection.inputStream.bufferedReader().use { it.readText() }
                 }).also { Perf.took("jellyfin $method ${url.substringBefore('?').removePrefix(server)} -> $code", Perf.now() - at) }
-            } finally { connection.disconnect() }
+            }
         } catch (e: Exception) {
             val unreachable = reachability.failed(e, duringConnect = !connected)
             Log.w(TAG, "$method ${url.substringBefore('?')} failed: ${e.javaClass.simpleName} after ${Perf.now() - at} ms" + if (unreachable) " (unreachable)" else "")

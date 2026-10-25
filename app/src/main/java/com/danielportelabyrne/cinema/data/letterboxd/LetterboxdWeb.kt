@@ -1,5 +1,6 @@
 package com.danielportelabyrne.cinema.data.letterboxd
 
+import com.danielportelabyrne.cinema.data.exchange
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.os.Handler
@@ -49,12 +50,12 @@ class LetterboxdWeb(private val activity: Activity, private val allowBrowser: Bo
         c.setRequestProperty("Accept", if (acceptJson) "application/json" else "text/html")
         c.setRequestProperty("Accept-Language", "en-GB,en;q=0.9")
         CookieManager.getInstance().getCookie(BASE)?.let { c.setRequestProperty("Cookie", it) }
-        try {
+        c.exchange {
             when (c.responseCode) {
                 200 -> c.inputStream.bufferedReader().use { it.readText() }.takeUnless { isChallenge(it) }
                 else -> null
             }
-        } finally { c.disconnect() }
+        }
     } catch (e: Exception) { Log.w(TAG, "plain ${url.substringAfter(BASE)}: ${e.javaClass.simpleName}"); null }
 
     @SuppressLint("SetJavaScriptEnabled")
