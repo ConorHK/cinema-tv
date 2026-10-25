@@ -36,7 +36,7 @@
       devShells = forAllSystems (pkgs: {
         default = pkgs.mkShell {
           inputsFrom = [ self.packages.${pkgs.stdenv.hostPlatform.system}.cinema-tv ];
-          packages = [ pkgs.android-tools ];
+          packages = [ pkgs.android-tools pkgs.gh ];
         };
       });
 

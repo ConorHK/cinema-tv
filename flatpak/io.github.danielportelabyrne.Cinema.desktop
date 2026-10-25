@@ -4,7 +4,6 @@ Name=Cinema
 GenericName=Media player
 Comment=Your Jellyfin library, made for the couch and the Steam Deck
 Exec=cinema
-Icon=io.github.danielportelabyrne.Cinema
 Terminal=false
 Categories=AudioVideo;Video;Player;TV;
 Keywords=jellyfin;films;movies;series;tv;

@@ -3,6 +3,7 @@ pluginManagement {
         google()
         mavenCentral()
         gradlePluginPortal()
+        maven("https://plugins.kotlin.dev/m2")
     }
 }
 dependencyResolutionManagement {
