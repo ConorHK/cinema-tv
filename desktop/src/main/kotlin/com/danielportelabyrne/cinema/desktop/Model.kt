@@ -164,6 +164,8 @@ class CinemaModel(
     fun state(p: Page): PageState = pageStates.getOrPut(p) { PageState() }
 
     var railOpen by mutableStateOf(false)
+    /** Set when the menu was opened from the page and should take focus once it is on screen. */
+    var railWanted by mutableStateOf(false)
     /** Puts focus on the page's first element (set by each page); Right from the rail uses it when there is nowhere to return to. */
     var pageEntry: () -> Boolean = { false }
     val railFocus = Dest.entries.associateWith { FocusRequester() }
@@ -268,6 +270,13 @@ class CinemaModel(
         if (remember) trail += page else { trail.clear(); pageStates.keys.filter { it !is Page.Home && it::class != to::class }.forEach { if (it is Page.OnService || it is Page.InGenre || it is Page.LbPerson || it is Page.LbList || it is Page.LbSearch || it is Page.LbFollow) pageStates.remove(it) } }
         while (stack.size > 1 && stack.last() !is Route.Browse) stack.removeAt(stack.lastIndex)
         page = to
+    }
+
+    /** Opens the menu and moves focus into it (Left from the page's left edge). */
+    fun openRail() {
+        loadStorage()
+        railOpen = true
+        railWanted = true
     }
 
     fun goRail(d: Dest) {
