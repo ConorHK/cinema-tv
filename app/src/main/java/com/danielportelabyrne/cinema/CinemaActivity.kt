@@ -10,13 +10,18 @@ import android.widget.EditText
 import android.widget.ScrollView
 import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
+import android.widget.Toast
+import com.danielportelabyrne.cinema.data.ContinueWatching
+import com.danielportelabyrne.cinema.data.ContinueWatchingContract
 import com.danielportelabyrne.cinema.data.jellyfin.JellyfinClient
 import com.danielportelabyrne.cinema.data.movies.Catalog
 import com.danielportelabyrne.cinema.data.movies.SeerrClient
 import com.danielportelabyrne.cinema.data.settings.CinemaSettings
 import com.danielportelabyrne.cinema.data.settings.Preset
+import com.danielportelabyrne.cinema.ui.JellyfinPlayback
 import com.danielportelabyrne.cinema.ui.MoviesPanel
 import com.danielportelabyrne.cinema.ui.Perf
+import com.danielportelabyrne.cinema.ui.PlayerActivity
 import com.danielportelabyrne.cinema.ui.room.InfoSheet
 import com.danielportelabyrne.cinema.ui.room.JellyfinConnectSheet
 import com.danielportelabyrne.cinema.ui.room.SeerrSignInSheet
@@ -31,6 +36,7 @@ class CinemaActivity : AppCompatActivity() {
     private lateinit var moviesPanel: MoviesPanel
     private lateinit var overlay: ViewGroup
     private lateinit var setup: SetupFlow
+    private lateinit var jellyfin: JellyfinClient
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -41,7 +47,7 @@ class CinemaActivity : AppCompatActivity() {
         val settings = CinemaSettings(platform)
         val preset = Preset.load(platform)?.also { it.applySettings(platform, settings) }
         Catalog.country = settings.region
-        val jellyfin = JellyfinClient(AndroidPlatform(this))
+        jellyfin = JellyfinClient(AndroidPlatform(this))
         val seerr = SeerrClient(AndroidPlatform(this))
         setup = SetupFlow(this, findViewById(R.id.setupHost), infoSheet, jellyfin, seerr, settings) { changed ->
             if (changed) { moviesPanel.reload(); if (moviesPanel.isVisible) moviesPanel.hide() }
@@ -81,6 +87,7 @@ class CinemaActivity : AppCompatActivity() {
             // Nothing to show until there is a Jellyfin server: first run, or after Reset everything.
             if (!settings.setupDone || !jellyfin.hasServer) setup.startFirstRun() else moviesPanel.show()
             handleDebugIntent(intent)
+            handleResumeIntent(intent)
         }
         if (preset?.needsSignIn == true) {
             Thread {
@@ -102,6 +109,32 @@ class CinemaActivity : AppCompatActivity() {
     override fun onNewIntent(intent: android.content.Intent) {
         super.onNewIntent(intent)
         handleDebugIntent(intent)
+        handleResumeIntent(intent)
+    }
+
+    /**
+     * Another app (the launcher's Continue watching row) asked to pick up a title where it was left. Opens the Jellyfin
+     * film or episode, or the stream this app saved, straight into the player; the row's key says which.
+     */
+    private fun handleResumeIntent(intent: android.content.Intent?) {
+        if (intent?.action != ContinueWatchingContract.ACTION_RESUME) return
+        val key = intent.getStringExtra(ContinueWatchingContract.EXTRA_KEY) ?: return
+        intent.action = null
+        ContinueWatchingContract.streamTitle(key)?.let { title ->
+            val payload = ContinueWatching(this).load(50).firstOrNull { it.title == title }?.payload
+            if (payload == null || !PlayerActivity.resume(this, payload)) Toast.makeText(this, "Couldn't reopen $title", Toast.LENGTH_LONG).show()
+            return
+        }
+        ContinueWatchingContract.jellyfinItemId(key)?.let { id ->
+            Thread {
+                val item = jellyfin.item(id)
+                runOnUiThread {
+                    if (isDestroyed) return@runOnUiThread
+                    if (item == null) Toast.makeText(this, "Couldn't reach Jellyfin for that title", Toast.LENGTH_LONG).show()
+                    else JellyfinPlayback.play(this, jellyfin, item, listOfNotNull(item.displayTitle, item.episodeLabel()).joinToString(" · "), item.resumeKey)
+                }
+            }.start()
+        }
     }
 
     /** Debug builds only: `--es debug_cinema_dest <name>` opens a page directly, for screenshots. */

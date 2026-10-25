@@ -134,4 +134,19 @@ class JellyfinApiTest {
         val url = JellyfinApi.recentlyPlayedUrl("http://deck:8096", "user1")
         assertTrue(url.contains("IncludeItemTypes=Movie,Episode") && url.contains("SortBy=DatePlayed") && url.contains("SortOrder=Descending"))
     }
+
+    @Test fun continue_watching_asks_for_part_watched_films_and_episodes() {
+        val url = JellyfinApi.resumeUrl("http://deck:8096", "user1")
+        assertTrue(url.startsWith("http://deck:8096/Users/user1/Items/Resume?"))
+        assertTrue(url.contains("MediaTypes=Video"))
+    }
+
+    @Test fun continue_watching_reads_where_each_episode_was_left() {
+        val e = JellyfinApi.parseItems("""{"Items":[
+          {"Id":"e1","Name":"Pilot","Type":"Episode","SeriesName":"The Show","SeriesId":"s1","ParentIndexNumber":2,"IndexNumber":3,
+           "RunTimeTicks":18000000000,"UserData":{"PlaybackPositionTicks":6000000000,"Played":false,"LastPlayedDate":"2026-10-20T20:00:00.0000000Z"}}]}""").single()
+        assertEquals(600_000L, e.resumeMs)
+        assertEquals("The Show", e.displayTitle)
+        assertEquals("S2 E3 · Pilot", e.displaySubtitle)
+    }
 }
