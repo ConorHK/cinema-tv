@@ -2447,7 +2447,7 @@ class MoviesPanel(
         fun add(b: CinemaButton) {
             // Coming back up to the featured title shows all of it: the page returns to the very top, not just far
             // enough to reveal the button.
-            b.setOnFocusChangeListener { _, f -> if (f && !detailOpen) page.post { page.smoothScrollTo(0, 0) } }
+            b.setOnFocusChangeListener { _, f -> if (f && !detailOpen) com.danielportelabyrne.cinema.design.Motion.glideVerticalTo(page, 0) }
             heroButtons.addView(b, LinearLayout.LayoutParams(-2, Cinema.px(activity, 76)).apply { if (heroButtons.childCount > 0) marginStart = gap })
         }
         e.library?.let { lib ->
