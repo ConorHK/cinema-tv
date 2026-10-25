@@ -622,7 +622,16 @@ class MoviesPanel(
      */
     private fun prefetchOnRest(card: View, e: Entry) {
         restPrefetch?.let { ui.removeCallbacks(it) }
-        restPrefetch = Runnable { if (card.hasFocus() || card.isFocused) prefetchBackdrop(e) }.also { ui.postDelayed(it, REST_PREFETCH_MS) }
+        restPrefetch = Runnable { if (card.hasFocus() || card.isFocused) { prefetchBackdrop(e); prefetchPage(e) } }.also { ui.postDelayed(it, REST_PREFETCH_MS) }
+    }
+
+    private fun prefetchPage(e: Entry) {
+        val tmdb = e.title.tmdbId?.toLongOrNull() ?: return
+        if (!seerr.isSignedIn) return
+        slowPool.execute {
+            seerr.warm(e.title.kind, tmdb)
+            if (e.title.kind == Kind.SHOW) sonarr.warm(tmdb)
+        }
     }
 
     /**

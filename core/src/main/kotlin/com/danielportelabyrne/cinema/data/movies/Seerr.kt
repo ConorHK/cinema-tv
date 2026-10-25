@@ -1,5 +1,6 @@
 package com.danielportelabyrne.cinema.data.movies
 
+import com.danielportelabyrne.cinema.data.TimedCache
 import com.danielportelabyrne.cinema.data.exchange
 import com.danielportelabyrne.cinema.platform.Platform
 import com.danielportelabyrne.cinema.platform.Log
@@ -8,6 +9,10 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 private const val TAG = "Seerr"
+private const val TITLE_TTL_MS = 2 * 60_000L
+
+private val titles = TimedCache<String>(TITLE_TTL_MS)
+private val listings = TimedCache<String>(6 * 60 * 60_000L)
 
 /**
  * Sent on every call to the request helper, which refuses actions without it (a browser page cannot add it, so a
@@ -160,24 +165,31 @@ class SeerrClient(platform: Platform) {
             val code = c.responseCode
             if (code == 401) signOut()
             SeerrApi.outcomeFor(code)
-        }
+        }.also { titles.forget(base + SeerrApi.path(kind, tmdbId)) }
     } catch (e: Exception) { Log.w(TAG, "request failed: ${e.javaClass.simpleName}"); RequestOutcome.FAILED }
 
     /** Withdraws a request from Seerr, including one no release has been found for yet. True when Seerr accepted it. */
     fun cancelRequest(id: Int): Boolean = try {
         val c = open("DELETE", "$base/api/v1/request/$id")
-        c.exchange { val code = c.responseCode; if (code == 401) signOut(); code in 200..299 }
+        c.exchange { val code = c.responseCode; if (code == 401) signOut(); code in 200..299 }.also { titles.forget() }
     } catch (e: Exception) { Log.w(TAG, "cancelRequest failed: ${e.javaClass.simpleName}"); false }
 
     fun availability(kind: Kind, tmdbId: Long): Availability = titleState(kind, tmdbId)?.availability ?: Availability.NONE
 
-    fun titleState(kind: Kind, tmdbId: Long): TitleRequestState? = get(SeerrApi.path(kind, tmdbId))?.let { SeerrApi.titleState(it) }
+    fun titleState(kind: Kind, tmdbId: Long): TitleRequestState? = title(kind, tmdbId)?.let { SeerrApi.titleState(it) }
+
+    private fun title(kind: Kind, tmdbId: Long): String? = SeerrApi.path(kind, tmdbId).let { p -> titles.get(base + p) { get(p) } }
+
+    fun warm(kind: Kind, tmdbId: Long) {
+        val page = title(kind, tmdbId) ?: return
+        if (kind == Kind.SHOW) SeerrSeasons.parseSeasons(page).firstOrNull()?.let { episodes(tmdbId, it.number) }
+    }
 
     /** Admin-only repair. A conflict or unavailable service keeps the existing state intact. */
-    fun clearStaleStatus(kind: Kind, tmdbId: Long): Boolean = tmdbId > 0 &&
+    fun clearStaleStatus(kind: Kind, tmdbId: Long): Boolean = (tmdbId > 0 &&
         pipelineCall("POST", "/media/${if (kind == Kind.SHOW) "tv" else "movie"}/$tmdbId/clear-stale", readTimeoutMs = 30_000)?.let {
             try { JSONObject(it).getBoolean("cleared") } catch (_: Exception) { false }
-        } == true
+        } == true).also { titles.forget(base + SeerrApi.path(kind, tmdbId)) }
 
     /** Everything the owner has asked for, newest first. Empty when not signed in or Seerr cannot be reached. */
     fun requests(): List<SeerrRequest> = requestsOrNull().orEmpty()
@@ -285,11 +297,13 @@ class SeerrClient(platform: Platform) {
         } catch (e: Exception) { prepared.remove(key); Log.w(TAG, "prepareStream failed: ${e.javaClass.simpleName}") }
     }
 
-    fun seasons(tmdbId: Long): List<SeasonInfo> = get(SeerrApi.path(Kind.SHOW, tmdbId))?.let { SeerrSeasons.parseSeasons(it) }.orEmpty()
+    fun seasons(tmdbId: Long): List<SeasonInfo> = title(Kind.SHOW, tmdbId)?.let { SeerrSeasons.parseSeasons(it) }.orEmpty()
 
-    fun episodes(tmdbId: Long, season: Int): List<EpisodeInfo> = get(SeerrApi.path(Kind.SHOW, tmdbId) + "/season/$season")?.let { SeerrSeasons.parseEpisodes(it) }.orEmpty()
+    fun episodes(tmdbId: Long, season: Int): List<EpisodeInfo> = (SeerrApi.path(Kind.SHOW, tmdbId) + "/season/$season").let { p ->
+        listings.get(base + p) { get(p) }?.let { SeerrSeasons.parseEpisodes(it) }.orEmpty()
+    }
 
-    fun titleInfo(kind: Kind, tmdbId: Long): Pair<String, String?>? = get(SeerrApi.path(kind, tmdbId))?.let { SeerrRequests.parseTitle(it) }
+    fun titleInfo(kind: Kind, tmdbId: Long): Pair<String, String?>? = title(kind, tmdbId)?.let { SeerrRequests.parseTitle(it) }
 
     /** TMDB's recommendations for a title, through Seerr (which also says what is already on the server). Null when unreachable. */
     fun recommendations(kind: Kind, tmdbId: Long): List<Suggestion>? = get(SeerrApi.path(kind, tmdbId) + "/recommendations?page=1")?.let { Picks.parseSuggestions(it) }

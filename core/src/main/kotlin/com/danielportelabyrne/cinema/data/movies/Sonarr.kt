@@ -1,5 +1,6 @@
 package com.danielportelabyrne.cinema.data.movies
 
+import com.danielportelabyrne.cinema.data.TimedCache
 import com.danielportelabyrne.cinema.platform.Log
 import org.json.JSONArray
 import org.json.JSONObject
@@ -7,6 +8,9 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 private const val TAG = "Sonarr"
+
+private val seriesLists = TimedCache<String>(10 * 60_000L)
+private val episodeLists = TimedCache<String>(60_000L)
 
 /** Where Sonarr is and how to add a series to it, as Seerr has it configured. */
 data class SonarrConfig(val baseUrl: String, val apiKey: String, val profileId: Int, val rootFolder: String, val seasonFolders: Boolean, val seriesType: String)
@@ -133,10 +137,10 @@ class SonarrClient(private val seerr: SeerrClient) {
     private fun config(): SonarrConfig? = cached ?: seerr.sonarrConfig()?.also { cached = it }
 
     /** The state of every episode Sonarr knows for this series; empty when it does not know the series. */
-    fun episodeStates(tmdbId: Long): Map<Pair<Int, Int>, EpisodeState> {
+    fun episodeStates(tmdbId: Long, recheck: Boolean = true): Map<Pair<Int, Int>, EpisodeState> {
         val c = config() ?: return emptyMap()
-        val id = seriesId(c, tmdbId) ?: return emptyMap()
-        return call(c, "GET", "/api/v3/episode?seriesId=$id")?.let { SonarrApi.episodeStates(it) }.orEmpty()
+        val id = seriesId(c, tmdbId, recheck) ?: return emptyMap()
+        return episodeLists.get("${c.baseUrl}#$id") { call(c, "GET", "/api/v3/episode?seriesId=$id") }?.let { SonarrApi.episodeStates(it) }.orEmpty()
     }
 
     /** Wants the given episodes of one season and searches for them. */
@@ -148,7 +152,9 @@ class SonarrClient(private val seerr: SeerrClient) {
             val lookup = try { JSONArray(found).optJSONObject(0) } catch (_: Exception) { null } ?: return EpisodeOutcome.NOT_FOUND
             val added = call(c, "POST", "/api/v3/series", SonarrApi.addBody(lookup, c)) ?: return EpisodeOutcome.FAILED
             id = try { JSONObject(added).optInt("id").takeIf { it > 0 } } catch (_: Exception) { null } ?: return EpisodeOutcome.FAILED
+            seriesLists.forget(c.baseUrl)
         }
+        episodeLists.forget("${c.baseUrl}#$id")
         // A series that has only just been added fetches its episode list in the background; give it a moment.
         var ids: List<Int> = emptyList()
         var episodesJson: String? = null
@@ -171,6 +177,7 @@ class SonarrClient(private val seerr: SeerrClient) {
         val c = config() ?: return false
         val id = seriesId(c, tmdbId) ?: return false
         val ids = call(c, "GET", "/api/v3/episode?seriesId=$id")?.let { SonarrApi.episodeIds(it, season, numbers) }.orEmpty()
+        episodeLists.forget("${c.baseUrl}#$id")
         return ids.isNotEmpty() && unwant(ids)
     }
 
@@ -193,10 +200,16 @@ class SonarrClient(private val seerr: SeerrClient) {
     fun unwant(ids: List<Int>): Boolean {
         if (ids.isEmpty()) return true
         val c = config() ?: return false
+        episodeLists.forget(c.baseUrl)
         return call(c, "PUT", "/api/v3/episode/monitor", SonarrApi.monitorBody(ids, on = false)) != null
     }
 
-    private fun seriesId(c: SonarrConfig, tmdbId: Long): Int? = call(c, "GET", "/api/v3/series")?.let { SonarrApi.findSeries(it, tmdbId) }
+    private fun seriesId(c: SonarrConfig, tmdbId: Long, recheck: Boolean = true): Int? {
+        fun find() = seriesLists.get(c.baseUrl) { call(c, "GET", "/api/v3/series") }?.let { SonarrApi.findSeries(it, tmdbId) }
+        return find() ?: if (recheck) { seriesLists.forget(c.baseUrl); find() } else null
+    }
+
+    fun warm(tmdbId: Long) { episodeStates(tmdbId, recheck = false) }
 
     private fun call(c: SonarrConfig, method: String, path: String, body: String? = null): String? = arrCall(c, method, path, body)
 }
