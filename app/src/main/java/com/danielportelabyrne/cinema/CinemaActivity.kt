@@ -149,7 +149,10 @@ class CinemaActivity : AppCompatActivity() {
                 val scrolling = focused is ScrollView &&
                     ((direction == View.FOCUS_DOWN && focused.canScrollVertically(1)) || (direction == View.FOCUS_UP && focused.canScrollVertically(-1)))
                 if (!editingText && !scrolling) {
-                    if (focused == null || focused === target || target.findFocus() == null) {
+                    if (target === overlay && (focused == null || focused === target || target.findFocus() == null)) {
+                        // Before the page takes focus, the rail is the first focusable: only Left may open it.
+                        moviesPanel.focusUnfocused(direction)
+                    } else if (focused == null || focused === target || target.findFocus() == null) {
                         // Focus strayed behind, or the container itself took it (slow devices): hand it to a child.
                         (FocusFinder.getInstance().findNextFocus(target, null, direction) ?: target).requestFocus()
                     } else if (target === overlay && moviesPanel.navigate(focused, direction)) {

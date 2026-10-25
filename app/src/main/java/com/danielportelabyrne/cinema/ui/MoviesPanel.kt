@@ -551,6 +551,11 @@ class MoviesPanel(
         return true
     }
 
+    /** A key with nothing focused: Left opens the rail, others the page. */
+    fun focusUnfocused(direction: Int) {
+        if (direction == View.FOCUS_LEFT) activeNavigationItem()?.requestFocus() else focusContent()
+    }
+
     private fun focusContent() {
         val previous = lastContentFocus?.takeIf { it.isAttachedToWindow && it.isShown && it.isEnabled && it.isFocusable }
         if (previous?.requestFocus() == true) return
