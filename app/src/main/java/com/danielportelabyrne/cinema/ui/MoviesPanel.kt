@@ -2879,6 +2879,9 @@ class MoviesPanel(
         ui.postDelayed(heroTick, HERO_TURN_MS)
     }
 
+    /** Something outside the page has focus, such as an open sheet. */
+    private fun focusElsewhere(): Boolean = activity.currentFocus?.let { !isWithin(it, overlay) } ?: false
+
     private fun showHero(index: Int) {
         heroIndex = index
         val e = heroEntries[index]
@@ -2921,7 +2924,7 @@ class MoviesPanel(
             images.loadBackdrop(u, maxWidth = HERO_BACKDROP_PX) { b -> if (heroEntries.getOrNull(heroIndex) === e) { heroBackdrop.show(b); frost?.refresh(400); Perf.end("movies.open->hero") } }
         } ?: heroBackdrop.show(null)
         if (focusedAt >= 0) heroButtons.getChildAt(minOf(focusedAt, heroButtons.childCount - 1))?.requestFocus()
-        else if (!detailOpen && overlay.findFocus() == null && current != Dest.Search) requestFocusRobust(overlay as ViewGroup, heroButtons.getChildAt(0))
+        else if (!detailOpen && overlay.findFocus() == null && current != Dest.Search && !focusElsewhere()) requestFocusRobust(overlay as ViewGroup, heroButtons.getChildAt(0))
     }
 
     /** Long names step down from the mockup's 128px so they still fit on two lines. */
