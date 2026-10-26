@@ -39,6 +39,8 @@ import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import android.view.KeyEvent
 import android.view.Gravity
 import android.widget.TextView
+import com.danielportelabyrne.cinema.data.settings.CinemaSettings
+import com.danielportelabyrne.cinema.data.settings.Integration
 import com.danielportelabyrne.cinema.data.stream.NetworkEstimator
 import com.danielportelabyrne.cinema.data.stream.PlaybackRecord
 import com.danielportelabyrne.cinema.data.stream.PlaybackStore
@@ -310,6 +312,7 @@ class PlayerActivity : AppCompatActivity() {
      */
     private fun loadLetterboxd(imdb: String?, tmdb: String?, episode: Boolean) {
         if (lbAsked || live || chrome == null || episode) return
+        if (!CinemaSettings(AndroidPlatform(this)).isOn(Integration.LETTERBOXD)) return
         val path = imdb?.takeIf { it.startsWith("tt") }?.let { "/imdb/$it/" } ?: tmdb?.toLongOrNull()?.let { "/tmdb/$it/" } ?: return
         lbAsked = true
         lbWorker.execute {

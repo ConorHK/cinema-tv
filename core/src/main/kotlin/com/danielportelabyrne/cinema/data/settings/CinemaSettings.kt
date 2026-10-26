@@ -64,7 +64,7 @@ class CinemaSettings(platform: Platform) {
         secrets.put("manual_${arr.name}_key", value?.apiKey)
     }
 
-    /** Optional: a Subsonic music server. Null hides Music. */
+    /** The Subsonic music server for the Music integration, or null when none is set up. */
     var subsonic: SubsonicConfig?
         get() {
             val url = prefs.getString("subsonic_url", null)?.takeIf { it.isNotBlank() } ?: return null
@@ -79,6 +79,10 @@ class CinemaSettings(platform: Platform) {
             secrets.put("subsonic_password", v?.password?.takeIf { it.isNotEmpty() })
             secrets.put("subsonic_key", v?.apiKey?.takeIf { it.isNotEmpty() })
         }
+
+    fun isOn(integration: Integration): Boolean = prefs.getBoolean(integration.key, integration.onByDefault)
+
+    fun setOn(integration: Integration, on: Boolean) { prefs.edit().putBoolean(integration.key, on).apply() }
 
     /** Download-client passwords, per client address. Only used when Sonarr/Radarr hide theirs. */
     fun clientPassword(baseUrl: String): String? = secrets.get("client_pw_$baseUrl")

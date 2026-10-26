@@ -30,6 +30,7 @@ import com.danielportelabyrne.cinema.data.movies.QueueClient
 import com.danielportelabyrne.cinema.data.movies.SeerrClient
 import com.danielportelabyrne.cinema.data.settings.Arr
 import com.danielportelabyrne.cinema.data.settings.CinemaSettings
+import com.danielportelabyrne.cinema.data.settings.Integration
 import com.danielportelabyrne.cinema.data.settings.LibraryOrder
 import com.danielportelabyrne.cinema.data.settings.ManualArr
 import com.danielportelabyrne.cinema.data.settings.Preset
@@ -104,7 +105,7 @@ class SetupFlow(
         settingsMode = name != "welcome"; changed = false; afterStep = null
         when (name) {
             "welcome" -> welcome(); "jellyfin" -> jellyfinServer(); "signin" -> jellyfinSignIn(); "seerr" -> seerrStep()
-            "arr" -> arrStep(); "client" -> clientStep(); "region" -> regionStep(); "advanced" -> advancedStep(); "order" -> libraryOrderStep(); "appearance" -> appearanceStep(); "music" -> musicStep()
+            "arr" -> arrStep(); "client" -> clientStep(); "region" -> regionStep(); "advanced" -> advancedStep(); "order" -> libraryOrderStep(); "appearance" -> appearanceStep(); "integrations" -> integrationsStep(); "music" -> musicStep()
             else -> overview()
         }
     }
@@ -339,8 +340,8 @@ class SetupFlow(
     }
 
     private fun musicStep() {
-        val p = page("MUSIC", "Music server", "A Subsonic server (Navidrome, Gonic, Airsonic) adds Music to the menu. Leave this off if you have none.")
-        backTo = ::overview
+        val p = page("MUSIC", "Music server", "A Subsonic server (Navidrome, Gonic, Airsonic) adds Music to the menu.")
+        backTo = ::integrationsStep
         val current = settings.subsonic
         val address = p.field("Music server address", current?.baseUrl)
         val user = p.field("Username", current?.username)
@@ -359,7 +360,7 @@ class SetupFlow(
             bg({ SubsonicClient(config).signIn() }) { result ->
                 if (token != pageToken) return@bg
                 when (result) {
-                    SignIn.OK -> { settings.subsonic = config; changed = true; overview() }
+                    SignIn.OK -> { settings.subsonic = config; settings.setOn(Integration.MUSIC, true); changed = true; integrationsStep() }
                     SignIn.WRONG_CREDENTIALS -> p.done("The server turned down that sign-in.")
                     SignIn.NEEDS_API_KEY -> p.done("This server needs an API key. Make one in its settings.")
                     SignIn.NOT_SUBSONIC -> p.done("That address is not a Subsonic server.")
@@ -367,8 +368,8 @@ class SetupFlow(
                 }
             }
         }
-        if (current != null) p.secondary("Turn off Music") { settings.subsonic = null; changed = true; overview() }
-        p.secondary("Cancel") { overview() }
+        if (current != null) p.secondary("Forget server") { settings.subsonic = null; changed = true; integrationsStep() }
+        p.secondary("Cancel") { integrationsStep() }
     }
 
     private fun libraryOrderStep() {
@@ -390,6 +391,34 @@ class SetupFlow(
         val rail = p.row("Navigation bar", railLabel())
         rail.button("Switch") { settings.railDocked = !settings.railDocked; rail.detail.text = railLabel() }
         p.primary("Done", R.drawable.ic_cin_check) { overview() }
+    }
+
+    private fun integrationsStep() {
+        val p = page("SETTINGS", "Integrations", "Optional services Cinema can add to the menu and to title pages. Switch off any you do not use.")
+        backTo = ::overview
+        Integration.entries.forEach { integration ->
+            val row = p.row(integration.label, integrationDetail(integration))
+            if (integration == Integration.MUSIC) row.button(if (settings.subsonic == null) "Set up" else "Server") { musicStep() }
+            row.button(toggleLabel(integration)) {
+                settings.setOn(integration, !settings.isOn(integration)); changed = true
+                row.detail.text = integrationDetail(integration)
+                row.lastButton?.label?.text = toggleLabel(integration)
+            }
+        }
+        p.primary("Done", R.drawable.ic_cin_check) { overview() }
+    }
+
+    private fun toggleLabel(integration: Integration) = if (settings.isOn(integration)) "Turn off" else "Turn on"
+
+    private fun integrationDetail(integration: Integration): String {
+        if (!settings.isOn(integration)) return "Off · ${integration.summary}"
+        return when (integration) {
+            Integration.LETTERBOXD -> LetterboxdRepository.followingCount(activity).let { n ->
+                if (n == 0) "On · follow people from the Letterboxd page" else "On · following $n, managed from the Letterboxd page"
+            }
+            Integration.MUSIC -> settings.subsonic?.let { "On · ${it.baseUrl}" + if (it.username.isNotBlank()) " · ${it.username}" else "" }
+                ?: "On · set up a server to add Music to the menu"
+        }
     }
 
     // --- Settings overview ---------------------------------------------------------------------------
@@ -419,12 +448,8 @@ class SetupFlow(
 
         p.row("Appearance", "How Cinema looks on this TV").button("Change") { appearanceStep() }
 
-        val music = settings.subsonic
-        p.row("Music", music?.let { "${it.baseUrl}" + if (it.username.isNotBlank()) " · ${it.username}" else "" } ?: "Off")
-            .button(if (music != null) "Change" else "Set up") { musicStep() }
-
-        val following = LetterboxdRepository.followingCount(activity)
-        p.row("Letterboxd", if (following == 0) "Not following anyone. Follow people from the Letterboxd page." else "Following $following · manage them from the Letterboxd page")
+        val on = Integration.entries.filter { settings.isOn(it) }.map { it.label }
+        p.row("Integrations", if (on.isEmpty()) "None switched on" else on.joinToString(", ") + " on").button("Change") { integrationsStep() }
 
         val extras = listOfNotNull(settings.requestHelperUrl?.let { "request helper" }, settings.streamServiceUrl?.let { "stream service" })
         p.row("Helper services", if (extras.isEmpty()) "None" else extras.joinToString(" and ").replaceFirstChar { it.uppercase() })
@@ -553,11 +578,16 @@ class SetupFlow(
         }
 
         inner class Row(private val line: LinearLayout, val detail: TextView) {
+            /** The button added last, so a toggle can relabel itself. */
+            var lastButton: CinemaButton? = null
+                private set
+
             fun button(label: String, accent: Boolean = false, danger: Boolean = false, onClick: () -> Unit): Row {
                 val kind = when { danger -> CinemaButton.Kind.DANGER; accent -> CinemaButton.Kind.TERRA; else -> CinemaButton.Kind.GLASS }
                 val b = CinemaButton(activity, kind, label, null, small = true).apply { setOnClickListener { onClick() } }
                 line.addView(b, LinearLayout.LayoutParams(-2, px(64)).apply { marginStart = px(16) })
                 focusables += b
+                lastButton = b
                 return this
             }
         }

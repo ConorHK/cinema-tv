@@ -89,6 +89,7 @@ import com.danielportelabyrne.cinema.design.cinema.QwertyKeyboard
 import com.danielportelabyrne.cinema.design.cinema.VoiceListeningView
 import com.danielportelabyrne.cinema.data.search.Qwerty
 import com.danielportelabyrne.cinema.data.search.VoiceState
+import com.danielportelabyrne.cinema.data.settings.Integration
 import com.danielportelabyrne.cinema.data.settings.LibraryOrder
 import com.danielportelabyrne.cinema.design.cinema.RibbonView
 import com.danielportelabyrne.cinema.design.cinema.StripeDrawable
@@ -123,7 +124,9 @@ class MoviesPanel(
     private val libraryOrder: () -> LibraryOrder = { LibraryOrder.RECENT },
     /** Opens Settings (over Cinema) from the gear at the foot of the rail. */
     private val onOpenSettings: () -> Unit = {},
-    /** The music server, when one is set up; null hides Music. */
+    /** Whether an integration is switched on in Settings; one that is off has no rail item or title page section. */
+    private val integrationOn: (Integration) -> Boolean = { true },
+    /** The music server, when one is set up. */
     private val music: () -> com.danielportelabyrne.cinema.data.music.SubsonicConfig? = { null }
 ) {
     /** Where the page is: one of the tabs, or a service or genre opened from Home, or search. */
@@ -256,7 +259,7 @@ class MoviesPanel(
         com.danielportelabyrne.cinema.design.Motion.enter(overlay, null, 0f)
         if (!topBuilt) { buildTop(); topBuilt = true }
         applyRailStyle()
-        syncMusic()
+        syncIntegrations()
         val reuse = current === Dest.Home && trail.isEmpty() && content.childCount > 0 && heroSet &&
             Perf.now() - builtAt < REUSE_MS && jellyfin.isConnected == builtConnected
         trail.clear(); current = Dest.Home
@@ -503,7 +506,7 @@ class MoviesPanel(
             Triple("Downloads", R.drawable.ic_cin_dl, Dest.Downloads)
         )
         destinations.forEach { (label, icon, dest) ->
-            top.addView(navigationItem(label, icon, dest).also { if (dest === Dest.Music) musicTab = it }, LinearLayout.LayoutParams(-1, Cinema.px(activity, 64)).apply { topMargin = Cinema.px(activity, 12) })
+            top.addView(navigationItem(label, icon, dest), LinearLayout.LayoutParams(-1, Cinema.px(activity, 64)).apply { topMargin = Cinema.px(activity, 12) })
         }
         top.addView(View(activity), LinearLayout.LayoutParams(1, 0, 1f))
         storageView = Cinema.text(activity, "", 18, Cinema.DIM).apply {
@@ -896,19 +899,30 @@ class MoviesPanel(
     /** A row of the owner's own titles, or the offer to connect Jellyfin. */
     // --- Music --------------------------------------------------------------------------------------
 
-    private var musicTab: View? = null
     private var musicClient: com.danielportelabyrne.cinema.data.music.SubsonicClient? = null
 
     /** One track row and the gap after it. */
     private val trackStep: Int get() = Cinema.px(activity, TRACK_HEIGHT + TRACK_GAP)
 
-    private fun shownTabs(): List<LinearLayout> = tabs.keys.filter { it.visibility == View.VISIBLE }
-
-    /** Music sits in the rail only while a server is set up. */
-    private fun syncMusic() {
-        musicClient = com.danielportelabyrne.cinema.ui.music.Music.use(music())
-        musicTab?.visibility = if (musicClient != null) View.VISIBLE else View.GONE
+    /** The integration a rail item belongs to; null for the items that are always there. */
+    private fun integrationOf(dest: Dest): Integration? = when (dest) {
+        Dest.Letterboxd -> Integration.LETTERBOXD
+        Dest.Music -> Integration.MUSIC
+        else -> null
     }
+
+    /** Shows the rail items of integrations that are on (Music only once a server is set up) and hides the rest. */
+    private fun syncIntegrations() {
+        musicClient = com.danielportelabyrne.cinema.ui.music.Music.use(music().takeIf { integrationOn(Integration.MUSIC) })
+        tabs.forEach { (item, dest) ->
+            val integration = integrationOf(dest) ?: return@forEach
+            val shown = integrationOn(integration) && (integration != Integration.MUSIC || musicClient != null)
+            item.visibility = if (shown) View.VISIBLE else View.GONE
+        }
+    }
+
+    /** The rail items on screen, top to bottom: Up and Down step through these. */
+    private fun shownTabs(): List<LinearLayout> = tabs.keys.filter { it.visibility == View.VISIBLE }
 
     /** Runs [work] against the music server off the main thread; [then] gets null when it failed. */
     private fun <T> musicLoad(gen: Int, work: (com.danielportelabyrne.cinema.data.music.SubsonicClient) -> T?, then: (T?) -> Unit) {
@@ -1744,6 +1758,7 @@ class MoviesPanel(
      * Letterboxd does not know.
      */
     private fun lbFilmSection(column: LinearLayout, e: Entry) {
+        if (!integrationOn(Integration.LETTERBOXD)) return
         val t = e.title
         val slugHint = t.key.removePrefix("lb:").takeIf { t.key.startsWith("lb:") }
         val tmdb = t.tmdbId?.toLongOrNull()
