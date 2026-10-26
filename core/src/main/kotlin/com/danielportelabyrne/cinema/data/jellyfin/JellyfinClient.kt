@@ -201,6 +201,15 @@ class JellyfinClient(platform: Platform) {
         return request("GET", JellyfinApi.newDownloadsUrl(JellyfinApi.cleanBase(server), uid))?.let { JellyfinApi.parseItems(it) }.orEmpty()
     }
 
+    /** Next episodes to watch and the episodes finished last, for UpNext. Blocking; empty when signed out. */
+    fun nextEpisodes(): Pair<List<JellyfinItem>, List<JellyfinItem>> {
+        val uid = userId ?: return emptyList<JellyfinItem>() to emptyList()
+        val base = JellyfinApi.cleanBase(server)
+        val next = request("GET", JellyfinApi.nextUpAllUrl(base, uid))?.let { JellyfinApi.parseItems(it) }.orEmpty()
+        val done = request("GET", JellyfinApi.finishedEpisodesUrl(base, uid))?.let { JellyfinApi.parseItems(it) }.orEmpty()
+        return next to done
+    }
+
     /** The library as last fetched, without asking the server. */
     fun loadedLibrary(): List<JellyfinItem> = library
 

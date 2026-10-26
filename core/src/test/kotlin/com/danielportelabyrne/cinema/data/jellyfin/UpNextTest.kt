@@ -38,6 +38,23 @@ class UpNextTest {
         assertEquals(listOf("e1"), out.map { it.item.id })
     }
 
+    @Test fun aFinishedEpisodeBringsTheNextOne() {
+        val done = ep("e1", "s", 1, 1, now - 9 * day).copy(played = true, playedMs = now - 2 * day)
+        val out = UpNext.merge(emptyList(), listOf(ep("e2", "s", 1, 2, now - day)), now, nextUp = listOf(ep("e2", "s", 1, 2, now - 9 * day)), finished = listOf(done))
+        assertEquals(listOf("e2"), out.map { it.item.id })
+        assertEquals(true, out.single().isNext)
+        assertEquals(now - 2 * day, out.single().atMs)
+    }
+
+    @Test fun aRemovedEpisodeKeepsItsSeriesOff() {
+        val going = ep("e1", "s", 1, 1, now - 9 * day).copy(resumeMs = 60_000, playedMs = now - day)
+        val key = UpNext.merge(listOf(going), emptyList(), now).single().hideKey
+        val done = ep("e0", "s", 1, 0, now - 9 * day).copy(played = true, playedMs = now - 3 * day)
+        val out = UpNext.merge(listOf(going), listOf(ep("e2", "s", 1, 2, now - day)), now, setOf(key),
+            nextUp = listOf(ep("e2", "s", 1, 2, now - day)), finished = listOf(done))
+        assertEquals(emptyList<String>(), out.map { it.item.id })
+    }
+
     @Test fun hiddenStaysHiddenUntilItChanges() {
         val a = film("a", played = now - day, resume = 60_000)
         val key = UpNext.merge(listOf(a), emptyList(), now).single().hideKey

@@ -1926,7 +1926,7 @@ class MoviesPanel(
     private class Resumable(
         val title: String, val subtitle: String?, val positionMs: Long, val durationMs: Long, val lastMs: Long,
         val open: () -> Unit, val still: Bitmap?, val stillUrl: String?,
-        val quality: String? = null, val isNew: Boolean = false, val remove: () -> Unit = {},
+        val quality: String? = null, val isNew: Boolean = false, val isNext: Boolean = false, val remove: () -> Unit = {},
         /** A library title: marks it watched in Jellyfin. */
         val markWatched: (() -> Boolean)? = null
     )
@@ -1943,7 +1943,8 @@ class MoviesPanel(
         fillContinue(row, gen)
     }
 
-    private fun fillContinue(row: Row, gen: Int) {
+    /** [focusAt] is the card index to focus once the row is redrawn. */
+    private fun fillContinue(row: Row, gen: Int, focusAt: Int? = null) {
         worker.execute {
             // Only streams with a saved payload can be reopened. Library plays are Jellyfin's to remember, not these.
             val streams = continueStore.load(12).mapNotNull { s ->
@@ -1953,25 +1954,28 @@ class MoviesPanel(
                     open = { playbackStarted = true; if (!PlayerActivity.resume(activity, payload)) Toast.makeText(activity, "Couldn't reopen ${s.title}", Toast.LENGTH_LONG).show() },
                     still = s.imageUri?.let { continueStore.image(it) }, stillUrl = null, remove = { continueStore.remove(s) })
             }
-            val entries = if (jellyfin.isConnected)
-                com.danielportelabyrne.cinema.data.jellyfin.UpNext.merge(jellyfin.continueWatching(), jellyfin.newDownloads(), System.currentTimeMillis(), continueSettings.hiddenContinue.toSet())
-            else emptyList()
+            val entries = if (jellyfin.isConnected) {
+                val (next, finished) = jellyfin.nextEpisodes()
+                com.danielportelabyrne.cinema.data.jellyfin.UpNext.merge(jellyfin.continueWatching(), jellyfin.newDownloads(), System.currentTimeMillis(),
+                    continueSettings.hiddenContinue.toSet(), nextUp = next, finished = finished)
+            } else emptyList()
             val films = entries.map { entry ->
                 val item = entry.item
                 Resumable(item.displayTitle, item.displaySubtitle, item.resumeMs, (item.runtimeMin ?: 0) * 60_000L, entry.atMs,
                     open = { playbackStarted = true; JellyfinPlayback.play(activity, jellyfin, item, listOfNotNull(item.displayTitle, item.episodeLabel()).joinToString(" · "), item.resumeKey) },
                     still = null, stillUrl = if (item.hasBackdrop) jellyfin.backdropUrl(item.id) else JellyfinApi.episodeImageUrl(JellyfinApi.cleanBase(jellyfin.server), item.id, 640),
-                    quality = item.quality, isNew = entry.isNew, remove = { hideFromContinue(entry.hideKey) },
+                    quality = item.quality, isNew = entry.isNew, isNext = entry.isNext, remove = { hideFromContinue(entry.hideKey) },
                     markWatched = { jellyfin.setPlayed(item.id, true) })
             }
             val all = (streams + films).sortedByDescending { it.lastMs }.take(12)
             activity.runOnUiThread {
                 if (gen != generation) return@runOnUiThread
                 row.inner.removeAllViews()
-                if (all.isEmpty()) { row.hide(); return@runOnUiThread }
+                if (all.isEmpty()) { row.hide(); if (focusAt != null) focusContent(); return@runOnUiThread }
                 row.heading?.visibility = View.VISIBLE; row.scroller.visibility = View.VISIBLE
                 all.forEachIndexed { i, r -> row.inner.addView(resumeCard(r, gen), cardParams(i)) }
                 row.setCount(all.size)
+                focusAt?.let { at -> row.inner.getChildAt(at.coerceIn(0, all.size - 1))?.let { c -> c.post { c.requestFocus() } } }
                 row.scroller.post { row.loadNear() }
             }
         }
@@ -1982,7 +1986,7 @@ class MoviesPanel(
         card.contentDescription = r.title
         card.title.text = r.title
         val left = if (r.durationMs > 0 && r.positionMs > 0) ((r.durationMs - r.positionMs) / 60_000).toInt().coerceAtLeast(1) else null
-        card.meta.text = listOfNotNull("New".takeIf { r.isNew }, r.subtitle, r.quality, left?.let { if (it >= 60) "${it / 60}h ${it % 60}m left" else "$it min left" }).joinToString(" · ")
+        card.meta.text = listOfNotNull("New".takeIf { r.isNew }, "Next".takeIf { r.isNext }, r.subtitle, r.quality, left?.let { if (it >= 60) "${it / 60}h ${it % 60}m left" else "$it min left" }).joinToString(" · ")
         card.setProgress(if (r.durationMs > 0) r.positionMs.toFloat() / r.durationMs else 0f)
         r.still?.let { card.setStill(it) }
         r.stillUrl?.let { url -> images.load(url, jellyfin.playbackHeaders(), maxWidth = 640, tag = pageTag) { b -> if (gen == generation) card.setStill(b) } }
@@ -1990,6 +1994,8 @@ class MoviesPanel(
         card.setOnClickListener { r.open() }
         // Hold OK to take it off the row.
         card.setOnLongClickListener {
+            // Afterwards focus goes to the card before this one.
+            fun refill() { continueRow?.let { row -> fillContinue(row, generation, focusAt = row.inner.indexOfChild(card) - 1) } }
             infoSheet.show("CONTINUE WATCHING", r.title, r.subtitle, listOf("Removing hides it until you play it again."), null, listOfNotNull(
                 r.markWatched?.let { mark ->
                     SheetAction("Mark watched", "Jellyfin counts it as seen", primary = true) {
@@ -1997,13 +2003,13 @@ class MoviesPanel(
                             val done = mark()
                             ui.post {
                                 if (!done) Toast.makeText(activity, "Couldn't reach Jellyfin", Toast.LENGTH_SHORT).show()
-                                else { markedWatched(); continueRow?.let { row -> fillContinue(row, generation) } }
+                                else { markedWatched(); refill() }
                             }
                         }
                     }
                 },
                 SheetAction("Remove", "Take it off this row", primary = r.markWatched == null) {
-                    worker.execute { r.remove(); ui.post { continueRow?.let { row -> fillContinue(row, generation) } } }
+                    worker.execute { r.remove(); ui.post { refill() } }
                 }
             ))
             true

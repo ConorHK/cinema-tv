@@ -117,6 +117,15 @@ object JellyfinApi {
         "$base/Users/${enc(userId)}/Items/Resume?Limit=12&Recursive=true&MediaTypes=Video" +
             "&Fields=RunTimeTicks,ProviderIds,Overview,Genres,DateCreated,DateLastMediaAdded,MediaSources"
 
+    /** Each series' next unwatched episode, skipping ones already part-watched. */
+    fun nextUpAllUrl(base: String, userId: String): String =
+        "$base/Shows/NextUp?userId=${enc(userId)}&Limit=40&enableResumable=false&enableRewatching=false" +
+            "&Fields=RunTimeTicks,ProviderIds,Overview,DateCreated,MediaSources"
+
+    /** Episodes watched to the end, last finished first. */
+    fun finishedEpisodesUrl(base: String, userId: String): String =
+        "$base/Items?userId=${enc(userId)}&Recursive=true&IncludeItemTypes=Episode&IsPlayed=true&SortBy=DatePlayed&SortOrder=Descending&Limit=100"
+
     /** Films and episodes not yet watched, newest download first. */
     fun newDownloadsUrl(base: String, userId: String): String =
         "$base/Items?userId=${enc(userId)}&Recursive=true&IncludeItemTypes=Movie,Episode&IsPlayed=false&SortBy=DateCreated&SortOrder=Descending" +
