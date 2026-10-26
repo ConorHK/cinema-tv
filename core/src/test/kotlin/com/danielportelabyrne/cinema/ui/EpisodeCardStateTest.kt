@@ -18,10 +18,10 @@ class EpisodeCardStateTest {
     private fun item(detail: String?, size: Long = 100, left: Long = 58, tmdb: Long = 7) =
         QueueItem(QueueSource.SONARR, 1, "MobLand", detail, tmdb, "downloading", size, left, null, null)
 
-    @Test fun an_episode_in_the_library_has_a_saffron_badge_and_an_unfocusable_check() {
+    @Test fun an_episode_in_the_library_has_a_saffron_badge_and_only_play() {
         val look = state(inLibrary = true)
         assertEquals(CardState.LIBRARY, look.state); assertEquals("IN LIBRARY", look.badge); assertTrue(look.badgeAccent)
-        assertTrue(look.playShown); assertTrue(look.downloadShown); assertFalse(look.downloadFocusable)
+        assertTrue(look.playShown); assertFalse(look.downloadShown); assertFalse(look.downloadFocusable)
     }
 
     @Test fun nothing_asked_for_offers_a_download() {

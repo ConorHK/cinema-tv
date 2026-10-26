@@ -57,7 +57,7 @@ fun episodeCardState(
     }
     val progress = if (state == CardState.DOWNLOADING) download?.progress() else null
     return when (state) {
-        CardState.LIBRARY -> CardLook(state, "IN LIBRARY", true, playShown = true, downloadShown = true, downloadFocusable = false)
+        CardState.LIBRARY -> CardLook(state, "IN LIBRARY", true, playShown = true, downloadShown = false, downloadFocusable = false)
         CardState.DOWNLOADING -> CardLook(state, if (progress != null) "DOWNLOADING ${Math.round(progress * 100)}%" else "DOWNLOADING", true,
             playShown = false, downloadShown = true, downloadFocusable = true, progress = progress)
         CardState.REQUESTED -> CardLook(state, "REQUESTED", false, playShown = false, downloadShown = true, downloadFocusable = true)

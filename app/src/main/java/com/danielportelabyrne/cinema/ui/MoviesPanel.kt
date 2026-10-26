@@ -3444,7 +3444,7 @@ class MoviesPanel(
                 card.tipText = when (look.state) {
                     CardState.REQUEST -> "Download S${s.number} E${ep.number}"
                     CardState.UNAIRED -> EpisodeCards.preRequestTip(s.number, ep.number)
-                    CardState.LIBRARY -> if (item == null) null else if (card.watched) "Hold OK to mark unwatched" else "Hold OK to mark watched"
+                    CardState.LIBRARY -> if (item == null) null else "Hold OK to open menu"
                     else -> null
                 }
             }
