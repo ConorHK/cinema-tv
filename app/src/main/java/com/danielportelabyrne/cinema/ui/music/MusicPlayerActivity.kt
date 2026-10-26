@@ -3,6 +3,7 @@ package com.danielportelabyrne.cinema.ui.music
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Outline
 import android.graphics.Paint
@@ -38,7 +39,13 @@ import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.exoplayer.audio.ForwardingAudioSink
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import com.danielportelabyrne.cinema.data.music.ArtPalette
 import com.danielportelabyrne.cinema.data.music.AudioHistory
+import com.danielportelabyrne.cinema.data.music.Bands
+import com.danielportelabyrne.cinema.data.music.MusicVisual
+import com.danielportelabyrne.cinema.data.music.Springs
+import com.danielportelabyrne.cinema.data.settings.CinemaSettings
+import com.danielportelabyrne.cinema.device.AndroidPlatform
 import com.danielportelabyrne.cinema.data.music.BurnIn
 import com.danielportelabyrne.cinema.data.music.MusicTrack
 import com.danielportelabyrne.cinema.data.music.Spectrum
@@ -50,11 +57,12 @@ import java.nio.ByteOrder
 import java.util.concurrent.Executors
 
 /**
- * Full-screen now playing for a queue of tracks from the music server. Built to sit on an OLED panel for hours: the
- * layout drifts, the art swaps sides each track, the words dim when the remote is idle, and the spectrum below has
- * no fixed line. Paused, the screen may sleep. Leaving the screen stops the music.
+ * Full-screen now playing for a queue of tracks from the music server, with the music drawn as arches or as light
+ * through glass. Built to sit on an OLED panel for hours: the layout drifts, the arches swap sides each track, the
+ * words dim when the remote is idle, and nothing lit holds still. Paused, the screen may sleep. Leaving stops the music.
  *
- * Remote: OK plays or pauses, Left and Right step through the queue, rewind and fast forward seek, Back leaves.
+ * Remote: OK plays or pauses, Left and Right step through the queue, Up and Down change the picture, rewind and fast
+ * forward seek, Back leaves.
  */
 @UnstableApi
 class MusicPlayerActivity : Activity() {
@@ -73,7 +81,13 @@ class MusicPlayerActivity : Activity() {
     @Volatile private var playingReadUs = 0L
     private var lastFrameNs = 0L
 
-    private lateinit var stage: LinearLayout
+    private val groups = FloatArray(ArchesView.COUNT)
+    private val springs = Springs(ArchesView.COUNT)
+    private lateinit var settings: CinemaSettings
+    private var visual = MusicVisual.ARCHES
+
+    private lateinit var root: FrameLayout
+    private lateinit var column: LinearLayout
     private lateinit var art: ImageView
     private lateinit var words: LinearLayout
     private lateinit var eyebrow: TextView
@@ -82,13 +96,16 @@ class MusicPlayerActivity : Activity() {
     private lateinit var progress: Progress
     private lateinit var times: TextView
     private lateinit var upNext: TextView
-    private lateinit var bars: SpectrumView
+    private lateinit var label: TextView
+    private var arches: ArchesView? = null
+    private var glass: GlassField? = null
 
     private val opened = SystemClock.elapsedRealtime()
     private var lastInput = opened
     private var shownIndex = -1
     private var scrobbled = -1
     private var failures = 0
+    private var frame = 0
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -96,6 +113,8 @@ class MusicPlayerActivity : Activity() {
         val c = Music.client
         if (queue == null || c == null || queue.tracks.isEmpty()) { finish(); return }
         client = c; tracks = queue.tracks
+        settings = CinemaSettings(AndroidPlatform(this))
+        visual = settings.musicVisual
         buildViews()
 
         val renderers = object : DefaultRenderersFactory(this) {
@@ -132,11 +151,8 @@ class MusicPlayerActivity : Activity() {
     private fun px(mock: Int) = Cinema.px(this, mock)
 
     private fun buildViews() {
-        val root = FrameLayout(this).apply { setBackgroundColor(Cinema.BG); clipChildren = false }
-        bars = SpectrumView(this, BANDS)
-        root.addView(bars, FrameLayout.LayoutParams(-1, px(560), Gravity.BOTTOM).apply { setMargins(px(120), 0, px(120), px(40)) })
-
-        stage = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        root = FrameLayout(this).apply { setBackgroundColor(Cinema.BG); clipChildren = false }
+        column = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; clipChildren = false }
         art = ImageView(this).apply {
             scaleType = ImageView.ScaleType.CENTER_CROP
             setBackgroundColor(Cinema.alpha(Cinema.CREAM, 0.06f))
@@ -145,7 +161,7 @@ class MusicPlayerActivity : Activity() {
         }
         words = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         eyebrow = Cinema.text(this, "", 17, Cinema.SAFFRON, weight = 700, tracking = 0.2f, caps = true)
-        title = Cinema.text(this, "", 64, Cinema.CREAM, serif = true, weight = 500).apply { maxLines = 2; ellipsize = TextUtils.TruncateAt.END }
+        title = Cinema.text(this, "", 60, Cinema.CREAM, serif = true, weight = 500).apply { maxLines = 2; ellipsize = TextUtils.TruncateAt.END }
         byline = Cinema.text(this, "", 28, Cinema.MUTED).apply { maxLines = 1; ellipsize = TextUtils.TruncateAt.END }
         progress = Progress(this)
         times = Cinema.text(this, "", 20, Cinema.DIM)
@@ -153,27 +169,64 @@ class MusicPlayerActivity : Activity() {
         words.addView(eyebrow)
         words.addView(title, LinearLayout.LayoutParams(-1, -2).apply { topMargin = px(18) })
         words.addView(byline, LinearLayout.LayoutParams(-1, -2).apply { topMargin = px(12) })
-        words.addView(progress, LinearLayout.LayoutParams(-1, px(6)).apply { topMargin = px(44) })
+        words.addView(progress, LinearLayout.LayoutParams(-1, px(6)).apply { topMargin = px(40) })
         words.addView(times, LinearLayout.LayoutParams(-1, -2).apply { topMargin = px(12) })
-        words.addView(upNext, LinearLayout.LayoutParams(-1, -2).apply { topMargin = px(28) })
-        root.addView(stage, FrameLayout.LayoutParams(-1, -2, Gravity.TOP).apply { setMargins(px(200), px(150), px(200), 0) })
+        words.addView(upNext, LinearLayout.LayoutParams(-1, -2).apply { topMargin = px(24) })
+        label = Cinema.text(this, "", 17, Cinema.SAFFRON, weight = 700, tracking = 0.24f, caps = true).apply { alpha = 0f }
         setContentView(root)
+        useVisual(visual, announce = false)
     }
 
-    /** Art and words, with the art on the side [BurnIn.artOnLeft] picks for this track. */
-    private fun arrange(index: Int) {
-        stage.removeAllViews()
-        val artParams = LinearLayout.LayoutParams(px(500), px(500))
-        val wordParams = LinearLayout.LayoutParams(0, -2, 1f)
-        if (BurnIn.artOnLeft(index)) {
-            stage.addView(art, artParams); stage.addView(words, wordParams.apply { marginStart = px(90) })
-            words.gravity = Gravity.START
-        } else {
-            stage.addView(words, wordParams.apply { marginEnd = px(90) }); stage.addView(art, artParams)
-            words.gravity = Gravity.END
+    /** Puts [v] on screen, with the art and words laid out around it. */
+    private fun useVisual(v: MusicVisual, announce: Boolean) {
+        visual = v
+        root.removeAllViews()
+        glass?.release(); glass = null; arches = null
+        springs.reset()
+        when (v) {
+            MusicVisual.ARCHES -> arches = ArchesView(this).also { it.shift = maxOf(shownIndex, 0) }
+            MusicVisual.GLASS -> glass = GlassField(this).also { g -> lastPalette?.let { g.setPalette(it) } }
         }
-        listOf(eyebrow, title, byline, times, upNext).forEach { it.gravity = if (BurnIn.artOnLeft(index)) Gravity.START else Gravity.END }
+        (arches ?: glass)?.let { root.addView(it) }
+        root.addView(column)
+        root.addView(label, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin = px(60) })
+        arrange(maxOf(shownIndex, 0))
+        if (announce) {
+            label.text = v.label
+            label.animate().cancel(); label.alpha = 1f
+            label.animate().alpha(0f).setStartDelay(1400).setDuration(600).start()
+        }
     }
+
+    /**
+     * Arches: the art and words take one half and the arches the other, swapping each track. Glass: the art floats
+     * in the middle with the words beneath it.
+     */
+    private fun arrange(index: Int) {
+        val screen = resources.displayMetrics.widthPixels
+        column.removeAllViews()
+        val side: Int
+        if (visual == MusicVisual.ARCHES) {
+            val left = BurnIn.artOnLeft(index)
+            side = if (left) Gravity.START else Gravity.END
+            arches?.layoutParams = FrameLayout.LayoutParams((screen * 0.5f).toInt(), -1, if (left) Gravity.END else Gravity.START)
+                .apply { if (left) rightMargin = px(80) else leftMargin = px(80) }
+            column.layoutParams = FrameLayout.LayoutParams((screen * 0.36f).toInt(), -2, Gravity.CENTER_VERTICAL or side)
+                .apply { if (left) leftMargin = px(170) else rightMargin = px(170) }
+            column.addView(art, LinearLayout.LayoutParams(px(460), px(460)).apply { gravity = side })
+        } else {
+            side = Gravity.CENTER_HORIZONTAL
+            glass?.layoutParams = FrameLayout.LayoutParams(-1, -1)
+            column.layoutParams = FrameLayout.LayoutParams((screen * 0.5f).toInt(), -2, Gravity.CENTER)
+            column.addView(art, LinearLayout.LayoutParams(px(520), px(520)).apply { gravity = side })
+        }
+        column.addView(words, LinearLayout.LayoutParams(-1, -2).apply { topMargin = px(56) })
+        listOf(eyebrow, title, byline, times, upNext).forEach { it.gravity = side }
+        arches?.shift = index
+        root.requestLayout()
+    }
+
+    private var lastPalette: IntArray? = null
 
     private fun showTrack() {
         val i = player.currentMediaItemIndex
@@ -182,7 +235,18 @@ class MusicPlayerActivity : Activity() {
             shownIndex = i; arrange(i)
             lastInput = SystemClock.elapsedRealtime()
             art.setImageDrawable(null)
-            Music.cover(t.coverArt, 800)?.let { key -> images.load(key, maxWidth = px(500)) { b -> if (shownIndex == i) art.setImageBitmap(b) } }
+            Music.cover(t.coverArt, 800)?.let { key ->
+                images.load(key, maxWidth = px(520)) { b ->
+                    if (shownIndex != i) return@load
+                    art.setImageBitmap(b)
+                    worker.execute {
+                        val small = Bitmap.createScaledBitmap(b, 24, 24, true)
+                        val pixels = IntArray(24 * 24).also { small.getPixels(it, 0, 24, 0, 0, 24, 24) }
+                        val colours = ArtPalette.pick(pixels, GlassField.POOLS)
+                        ui.post { if (shownIndex == i) { lastPalette = colours; glass?.setPalette(colours) } }
+                    }
+                }
+            }
             worker.execute { client.scrobble(t.id, submission = false) }
         }
         eyebrow.text = if (tracks.size > 1) "Now playing  \u00b7  ${i + 1} of ${tracks.size}" else "Now playing"
@@ -201,17 +265,25 @@ class MusicPlayerActivity : Activity() {
             lastFrameNs = frameNs
             // The sink reports its position every few milliseconds; carry it forward to this frame.
             val at = playingUs
-            val ahead = if (player.isPlaying) (SystemClock.elapsedRealtimeNanos() / 1000 - playingReadUs).coerceIn(0L, 100_000L) else 0L
+            val playing = player.isPlaying
+            val ahead = if (playing) (SystemClock.elapsedRealtimeNanos() / 1000 - playingReadUs).coerceIn(0L, 100_000L) else 0L
             val rate = history.sampleRate
-            if (player.isPlaying && at != Long.MIN_VALUE && rate > 0 && history.window(at + ahead, recent)) spectrum.update(recent, rate, dtMs)
+            if (playing && at != Long.MIN_VALUE && rate > 0 && history.window(at + ahead, recent)) spectrum.update(recent, rate, dtMs)
             else spectrum.decay(dtMs)
-            bars.show(spectrum.levels, ((now - opened) % SWEEP_MS) / SWEEP_MS.toFloat())
-            val (dx, dy) = BurnIn.drift(now - opened, px(DRIFT).toFloat())
-            stage.translationX = dx; stage.translationY = dy
-            bars.translationX = -dx; bars.translationY = dy
+            Bands.group(spectrum.levels, groups)
+            springs.step(groups, dtMs)
+            val clock = now - opened
+            arches?.show(springs.values, clock)
+            // Paused, the glass only needs to drift: a few frames a second will do.
+            if (playing || frame % 6 == 0) glass?.show(springs.values, clock)
+            frame++
+            val (dx, dy) = BurnIn.drift(clock, px(DRIFT).toFloat())
+            column.translationX = dx; column.translationY = dy
+            arches?.let { it.translationX = -dx; it.translationY = dy }
             val chrome = BurnIn.chromeAlpha(now - lastInput)
             words.alpha = chrome
             art.alpha = 0.4f + 0.6f * chrome
+            if (visual == MusicVisual.GLASS) { val s = 1f + 0.018f * springs.values[0]; art.scaleX = s; art.scaleY = s } else { art.scaleX = 1f; art.scaleY = 1f }
             updateProgress()
             Choreographer.getInstance().postFrameCallback(this)
         }
@@ -261,7 +333,11 @@ class MusicPlayerActivity : Activity() {
             KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_MEDIA_PREVIOUS -> if (event.repeatCount == 0) player.seekToPrevious()
             KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> player.seekTo(player.currentPosition + SEEK_MS)
             KeyEvent.KEYCODE_MEDIA_REWIND -> player.seekTo((player.currentPosition - SEEK_MS).coerceAtLeast(0))
-            KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN -> Unit
+            KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN -> if (event.repeatCount == 0) {
+                val next = visual.next()
+                settings.musicVisual = next
+                useVisual(next, announce = true)
+            }
             else -> return super.onKeyDown(keyCode, event)
         }
         return true
@@ -275,6 +351,7 @@ class MusicPlayerActivity : Activity() {
     override fun onDestroy() {
         Choreographer.getInstance().removeFrameCallback(tick)
         if (::player.isInitialized) player.release()
+        glass?.release()
         worker.shutdown()
         super.onDestroy()
     }
@@ -351,7 +428,6 @@ class MusicPlayerActivity : Activity() {
     companion object {
         private const val TAG = "CinemaMusic"
         private const val BANDS = 64
-        private const val SWEEP_MS = 5 * 60_000L
         private const val DRIFT = 28
         private const val SEEK_MS = 10_000L
 
