@@ -70,6 +70,7 @@ class CinemaActivity : AppCompatActivity() {
             infoSheet = infoSheet,
             libraryOrder = { settings.libraryOrder },
             railDocked = { settings.railDocked },
+            menuOrder = { settings.menuOrder },
             integrationOn = { settings.isOn(it) },
             music = { settings.subsonic },
             onOpenSettings = { moviesPanel.hide(); setup.openSettings() }

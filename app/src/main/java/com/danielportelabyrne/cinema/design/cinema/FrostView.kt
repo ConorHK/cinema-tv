@@ -114,7 +114,7 @@ class FrostView(context: Context, private val sources: List<View>, radiusPx: Flo
             // Only the source's position here: drawUnder applies each view's scroll to its children itself, so taking the
             // scroll off here too would draw a scrolled page shifted up by its scroll, not directly beneath the glass.
             val inner = c.save()
-            c.translate(s.left.toFloat(), s.top.toFloat())
+            c.translate(s.x, s.y)
             try { drawUnder(s, c) } catch (_: Exception) { }   // a source that cannot draw in software is left out, not fatal
             c.restoreToCount(inner)
         }

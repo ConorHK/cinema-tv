@@ -34,6 +34,10 @@ class CinemaSettings(platform: Platform) {
         get() = prefs.getBoolean("rail_docked", false)
         set(v) { prefs.edit().putBoolean("rail_docked", v).apply() }
 
+    var menuOrder: List<MenuItem>
+        get() = MenuItem.order(prefs.getString("menu_order", null))
+        set(v) { prefs.edit().putString("menu_order", MenuItem.save(v)).apply() }
+
     /** Two-letter country for what is streaming where: the TV's own country until the owner picks another. */
     var region: String
         get() = prefs.getString("region", null) ?: defaultRegion()

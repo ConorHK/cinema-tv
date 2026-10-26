@@ -33,6 +33,7 @@ import com.danielportelabyrne.cinema.data.settings.CinemaSettings
 import com.danielportelabyrne.cinema.data.settings.Integration
 import com.danielportelabyrne.cinema.data.settings.LibraryOrder
 import com.danielportelabyrne.cinema.data.settings.ManualArr
+import com.danielportelabyrne.cinema.data.settings.MenuItem
 import com.danielportelabyrne.cinema.data.settings.Preset
 import com.danielportelabyrne.cinema.design.Cinema
 import com.danielportelabyrne.cinema.design.cinema.CinemaButton
@@ -105,7 +106,7 @@ class SetupFlow(
         settingsMode = name != "welcome"; changed = false; afterStep = null
         when (name) {
             "welcome" -> welcome(); "jellyfin" -> jellyfinServer(); "signin" -> jellyfinSignIn(); "seerr" -> seerrStep()
-            "arr" -> arrStep(); "client" -> clientStep(); "region" -> regionStep(); "advanced" -> advancedStep(); "order" -> libraryOrderStep(); "appearance" -> appearanceStep(); "integrations" -> integrationsStep(); "music" -> musicStep()
+            "arr" -> arrStep(); "client" -> clientStep(); "region" -> regionStep(); "advanced" -> advancedStep(); "order" -> libraryOrderStep(); "appearance" -> appearanceStep(); "menu" -> menuOrderStep(); "integrations" -> integrationsStep(); "music" -> musicStep()
             else -> overview()
         }
     }
@@ -390,7 +391,27 @@ class SetupFlow(
         backTo = ::overview
         val rail = p.row("Navigation bar", railLabel())
         rail.button("Switch") { settings.railDocked = !settings.railDocked; rail.detail.text = railLabel() }
+        p.row("Menu order", settings.menuOrder.take(3).joinToString(", ") { it.label } + ", ...").button("Change") { menuOrderStep() }
         p.primary("Done", R.drawable.ic_cin_check) { overview() }
+    }
+
+    /** [focus] is the item just moved; its Up or Down button keeps focus. */
+    private fun menuOrderStep(focus: MenuItem? = null, up: Boolean = true) {
+        val p = page("APPEARANCE", "Menu order", "The order of the pages in the menu. Settings stays at the foot.")
+        backTo = ::appearanceStep
+        fun move(item: MenuItem, by: Int) {
+            settings.menuOrder = MenuItem.move(settings.menuOrder, item, by); changed = true
+            menuOrderStep(item, up = by < 0)
+        }
+        settings.menuOrder.forEachIndexed { i, item ->
+            val row = p.row("${i + 1}. ${item.label}", "").apply { detail.visibility = android.view.View.GONE }
+            row.button("Up") { move(item, -1) }
+            val upButton = row.lastButton
+            row.button("Down") { move(item, 1) }
+            if (item == focus) (if (up) upButton else row.lastButton)?.let { b -> b.post { b.requestFocus() } }
+        }
+        p.primary("Done", R.drawable.ic_cin_check) { appearanceStep() }
+        p.secondary("Reset order") { settings.menuOrder = MenuItem.entries; changed = true; menuOrderStep() }
     }
 
     private fun integrationsStep() {

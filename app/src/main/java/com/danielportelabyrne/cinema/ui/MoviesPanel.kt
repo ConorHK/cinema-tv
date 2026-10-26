@@ -1,6 +1,9 @@
 package com.danielportelabyrne.cinema.ui
 
 import com.danielportelabyrne.cinema.device.AndroidPlatform
+import android.animation.Animator
+import android.animation.AnimatorListenerAdapter
+import android.animation.ValueAnimator
 import android.app.Activity
 import android.content.Context
 import android.graphics.Bitmap
@@ -91,6 +94,7 @@ import com.danielportelabyrne.cinema.data.search.Qwerty
 import com.danielportelabyrne.cinema.data.search.VoiceState
 import com.danielportelabyrne.cinema.data.settings.Integration
 import com.danielportelabyrne.cinema.data.settings.LibraryOrder
+import com.danielportelabyrne.cinema.data.settings.MenuItem
 import com.danielportelabyrne.cinema.design.cinema.RibbonView
 import com.danielportelabyrne.cinema.design.cinema.StripeDrawable
 import com.danielportelabyrne.cinema.design.Type
@@ -121,6 +125,8 @@ class MoviesPanel(
     private val infoSheet: com.danielportelabyrne.cinema.ui.room.InfoSheet,
     /** The rail sits flush on the left edge instead of floating. */
     private val railDocked: () -> Boolean = { false },
+    /** The owner's order for the menu's pages. */
+    private val menuOrder: () -> List<MenuItem> = { MenuItem.entries },
     private val libraryOrder: () -> LibraryOrder = { LibraryOrder.RECENT },
     /** Opens Settings (over Cinema) from the gear at the foot of the rail. */
     private val onOpenSettings: () -> Unit = {},
@@ -259,6 +265,7 @@ class MoviesPanel(
         com.danielportelabyrne.cinema.design.Motion.enter(overlay, null, 0f)
         if (!topBuilt) { buildTop(); topBuilt = true }
         applyRailStyle()
+        applyMenuOrder()
         syncIntegrations()
         val reuse = current === Dest.Home && trail.isEmpty() && content.childCount > 0 && heroSet &&
             Perf.now() - builtAt < REUSE_MS && jellyfin.isConnected == builtConnected
@@ -494,19 +501,21 @@ class MoviesPanel(
         brand.addView(wordmark, LinearLayout.LayoutParams(-2, -2).apply { marginStart = Cinema.px(activity, 18) })
         top.addView(brand, LinearLayout.LayoutParams(-1, Cinema.px(activity, 56)).apply { bottomMargin = Cinema.px(activity, 26) })
 
-        val destinations = listOf(
-            Triple("Search", R.drawable.ic_cin_search, Dest.Search),
-            Triple("Home", R.drawable.ic_cin_home, Dest.Home),
-            Triple("Films", R.drawable.ic_cin_film, Dest.Films),
-            Triple("Series", R.drawable.ic_cin_tv, Dest.Series),
-            Triple("Documentaries", R.drawable.ic_cin_doc, Dest.Docs),
-            Triple("Letterboxd", R.drawable.ic_cin_lb, Dest.Letterboxd),
-            Triple("Music", R.drawable.ic_cin_music, Dest.Music),
-            Triple("My library", R.drawable.ic_cin_lib, Dest.Library),
-            Triple("Downloads", R.drawable.ic_cin_dl, Dest.Downloads)
-        )
-        destinations.forEach { (label, icon, dest) ->
-            top.addView(navigationItem(label, icon, dest), LinearLayout.LayoutParams(-1, Cinema.px(activity, 64)).apply { topMargin = Cinema.px(activity, 12) })
+        MenuItem.entries.forEach { m ->
+            val (icon, dest) = when (m) {
+                MenuItem.SEARCH -> R.drawable.ic_cin_search to Dest.Search
+                MenuItem.HOME -> R.drawable.ic_cin_home to Dest.Home
+                MenuItem.FILMS -> R.drawable.ic_cin_film to Dest.Films
+                MenuItem.SERIES -> R.drawable.ic_cin_tv to Dest.Series
+                MenuItem.DOCS -> R.drawable.ic_cin_doc to Dest.Docs
+                MenuItem.LETTERBOXD -> R.drawable.ic_cin_lb to Dest.Letterboxd
+                MenuItem.MUSIC -> R.drawable.ic_cin_music to Dest.Music
+                MenuItem.LIBRARY -> R.drawable.ic_cin_lib to Dest.Library
+                MenuItem.DOWNLOADS -> R.drawable.ic_cin_dl to Dest.Downloads
+            }
+            val item = navigationItem(m.label, icon, dest)
+            menuItems[m] = item
+            top.addView(item, LinearLayout.LayoutParams(-1, Cinema.px(activity, 64)).apply { topMargin = Cinema.px(activity, 12) })
         }
         top.addView(View(activity), LinearLayout.LayoutParams(1, 0, 1f))
         storageView = Cinema.text(activity, "", 18, Cinema.DIM).apply {
@@ -527,6 +536,20 @@ class MoviesPanel(
 
     private lateinit var brand: LinearLayout
     private var docked: Boolean? = null
+    private val menuItems = LinkedHashMap<MenuItem, LinearLayout>()
+
+    /** Puts the menu's items in the owner's order, in the rail and for Up and Down. */
+    private fun applyMenuOrder() {
+        val order = menuOrder().mapNotNull { menuItems[it] }
+        val first = order.minOf { top.indexOfChild(it) }
+        if (order.withIndex().all { (i, v) -> top.indexOfChild(v) == first + i }) return
+        order.forEach { top.removeView(it) }
+        order.forEachIndexed { i, v -> top.addView(v, first + i) }
+        val before = LinkedHashMap(tabs)
+        tabs.clear()
+        order.forEach { v -> tabs[v] = before.getValue(v) }
+        before.forEach { (v, d) -> if (v !in tabs) tabs[v] = d }
+    }
 
     /** Docked, the rail fills the left edge; its contents keep their floating places. */
     private fun applyRailStyle() {
@@ -550,7 +573,8 @@ class MoviesPanel(
         }
     }
 
-    private fun railWidth() = Cinema.px(activity, (if (navigationExpanded) RAIL_WIDTH_OPEN else RAIL_WIDTH) + if (docked == true) RAIL_GAP else 0)
+    /** [open] runs from 0, closed, to 1, open with labels. */
+    private fun railWidth(open: Float = railOpen) = Cinema.px(activity, RAIL_WIDTH + (RAIL_WIDTH_OPEN - RAIL_WIDTH) * open + if (docked == true) RAIL_GAP else 0)
 
     private fun navigationItem(label: String, icon: Int, dest: Dest): LinearLayout {
         val row = RailItem(activity).apply {
@@ -573,7 +597,10 @@ class MoviesPanel(
         tabs[row] = dest
         navigationLabels[row] = image to name
         row.setOnFocusChangeListener { _, _ -> styleTabs() }
-        row.setOnClickListener { if (dest === Dest.Settings) onOpenSettings() else if (current !== dest) go(dest) }
+        row.setOnClickListener {
+            if (dest === Dest.Settings) onOpenSettings()
+            else { if (current !== dest) go(dest); focusPageSoon() }
+        }
         row.setOnKeyListener { _, code, event ->
             when {
                 code == android.view.KeyEvent.KEYCODE_DPAD_LEFT -> true
@@ -628,6 +655,16 @@ class MoviesPanel(
         candidates.firstOrNull { it.isShown && it.isEnabled }?.requestFocus()
     }
 
+    /** Leaves the rail for the page once it has something to focus. */
+    private fun focusPageSoon(tries: Int = 0) {
+        if (!isVisible || !top.hasFocus()) return
+        // A featured title's buttons stay hidden until it loads; focusing a row first would scroll the page down.
+        val hero = ::heroButtons.isInitialized && isWithin(heroButtons, content)
+        if (hero && heroButtons.visibility == View.VISIBLE) heroButtons.getChildAt(0)?.requestFocus()
+        else if (!hero || tries >= 40) focusContent()
+        if (top.hasFocus() && tries < 60) ui.postDelayed({ focusPageSoon(tries + 1) }, 75)
+    }
+
     private fun focusContent() {
         val previous = lastContentFocus?.takeIf { it.isAttachedToWindow && it.isShown && it.isEnabled && it.isFocusable }
         if (previous?.requestFocus() == true) return
@@ -646,18 +683,41 @@ class MoviesPanel(
         }
         return false
     }
+    private var railOpen = 0f
+    private var railAnimator: ValueAnimator? = null
+
+    /** Opens or closes the rail like a drawer: it widens and pushes the page right. */
     private fun setNavigationExpanded(expanded: Boolean) {
         if (navigationExpanded == expanded) return
         navigationExpanded = expanded
-        top.layoutParams = top.layoutParams.apply { width = railWidth() }
-        frost?.let { f ->
-            f.layoutParams = f.layoutParams.apply { width = railWidth() }
-            // Open, the pill lies over the page's text, so the frost is tinted a little deeper to keep the labels clear.
-            f.tint = if (expanded) 0xB8120D0A.toInt() else Cinema.RAIL_FILL
+        // Open, the pill lies over the page's text, so the frost is tinted a little deeper to keep the labels clear.
+        frost?.tint = if (expanded) 0xB8120D0A.toInt() else Cinema.RAIL_FILL
+        if (expanded) showRailLabels(true)
+        railAnimator?.cancel()
+        railAnimator = ValueAnimator.ofFloat(railOpen, if (expanded) 1f else 0f).apply {
+            duration = RAIL_SLIDE_MS
+            interpolator = android.view.animation.DecelerateInterpolator(2f)
+            addUpdateListener { setRailOpen(it.animatedValue as Float) }
+            addListener(object : AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: Animator) { if (!navigationExpanded) showRailLabels(false) }
+            })
+            start()
         }
-        navigationLabels.values.forEach { (_, name) -> name.visibility = if (expanded) View.VISIBLE else View.GONE }
-        wordmark.visibility = if (expanded) View.VISIBLE else View.GONE
-        storageView.visibility = if (expanded && storageView.text.isNotBlank()) View.VISIBLE else View.GONE
+        frost?.refresh(RAIL_SLIDE_MS)
+    }
+
+    private fun setRailOpen(open: Float) {
+        railOpen = open
+        val w = railWidth()
+        top.layoutParams = top.layoutParams.apply { width = w }
+        frost?.let { f -> f.layoutParams = f.layoutParams.apply { width = w } }
+        page.translationX = (w - railWidth(0f)).toFloat()
+    }
+
+    private fun showRailLabels(on: Boolean) {
+        navigationLabels.values.forEach { (_, name) -> name.visibility = if (on) View.VISIBLE else View.GONE }
+        wordmark.visibility = if (on) View.VISIBLE else View.GONE
+        storageView.visibility = if (on && storageView.text.isNotBlank()) View.VISIBLE else View.GONE
     }
 
     /**
@@ -3756,6 +3816,7 @@ class MoviesPanel(
         const val RAIL_WIDTH = 92        // mockup px, collapsed
         const val RAIL_WIDTH_OPEN = 420  // mockup px, with labels while the rail has focus
         const val RAIL_GAP = 32          // mockup px, floating rail to screen edge
+        const val RAIL_SLIDE_MS = 240L
         const val PREWARM_SHELVES = 4
         const val CARDS_PER_FRAME = 4
         const val TRACK_HEIGHT = 84
