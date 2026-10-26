@@ -38,6 +38,11 @@ class CinemaSettings(platform: Platform) {
         get() = MenuItem.order(prefs.getString("menu_order", null))
         set(v) { prefs.edit().putString("menu_order", MenuItem.save(v)).apply() }
 
+    /** Continue watching cards the owner removed, by UpNext.Entry.hideKey or a stream's title. */
+    var hiddenContinue: List<String>
+        get() = prefs.getString("continue_hidden", null)?.split('\n')?.filter { it.isNotBlank() }.orEmpty()
+        set(v) { prefs.edit().putString("continue_hidden", v.takeLast(200).joinToString("\n")).apply() }
+
     /** Two-letter country for what is streaming where: the TV's own country until the owner picks another. */
     var region: String
         get() = prefs.getString("region", null) ?: defaultRegion()

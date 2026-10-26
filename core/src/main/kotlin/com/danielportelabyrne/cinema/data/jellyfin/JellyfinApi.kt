@@ -38,7 +38,9 @@ data class JellyfinItem(
     /** When it, or a series' newest episode, reached the server. */
     val addedMs: Long? = null,
     /** When the user last played it, or any episode of a series. */
-    val playedMs: Long? = null
+    val playedMs: Long? = null,
+    /** "4K · Dolby Vision", when the server listed the file's streams. */
+    val quality: String? = null
 ) {
     /** Whichever is newer: added or last watched. */
     val recentMs: Long get() = maxOf(addedMs ?: 0L, playedMs ?: 0L)
@@ -113,7 +115,12 @@ object JellyfinApi {
     /** Films and episodes part-watched, most recently watched first. The server leaves out anything already finished. */
     fun resumeUrl(base: String, userId: String): String =
         "$base/Users/${enc(userId)}/Items/Resume?Limit=12&Recursive=true&MediaTypes=Video" +
-            "&Fields=RunTimeTicks,ProviderIds,Overview,Genres,DateCreated,DateLastMediaAdded"
+            "&Fields=RunTimeTicks,ProviderIds,Overview,Genres,DateCreated,DateLastMediaAdded,MediaSources"
+
+    /** Films and episodes not yet watched, newest download first. */
+    fun newDownloadsUrl(base: String, userId: String): String =
+        "$base/Items?userId=${enc(userId)}&Recursive=true&IncludeItemTypes=Movie,Episode&IsPlayed=false&SortBy=DateCreated&SortOrder=Descending" +
+            "&Limit=60&Fields=RunTimeTicks,ProviderIds,Overview,Genres,DateCreated,MediaSources"
 
     /** Gives each film and series its latest play, an episode counting for its series. */
     fun withPlays(library: List<JellyfinItem>, played: List<JellyfinItem>): List<JellyfinItem> {
@@ -351,12 +358,27 @@ object JellyfinApi {
             communityRating = o.optDouble("CommunityRating", 0.0).takeIf { it > 0 },
             audioCodec = defaultAudioCodec(sources?.optJSONObject(0)),
             addedMs = dateOf(o, "DateLastMediaAdded") ?: dateOf(o, "DateCreated"),
-            playedMs = data?.let { dateOf(it, "LastPlayedDate") }
+            playedMs = data?.let { dateOf(it, "LastPlayedDate") },
+            quality = videoQuality(sources?.optJSONObject(0))
         )
     }
 
     /** Missing, null and unreadable dates are all null. */
     private fun dateOf(o: JSONObject, name: String): Long? = if (o.isNull(name)) null else utcMillis(o.optString(name))
+
+    /** "4K · Dolby Vision" from the first video stream; width, so a wide film is not called 720p. */
+    fun videoQuality(source: JSONObject?): String? {
+        val streams = source?.optJSONArray("MediaStreams") ?: return null
+        val v = (0 until streams.length()).mapNotNull { streams.optJSONObject(it) }.firstOrNull { it.optString("Type") == "Video" } ?: return null
+        val w = v.optInt("Width", 0); val h = v.optInt("Height", 0)
+        val res = when { w >= 3200 || h >= 1800 -> "4K"; w >= 1800 || h >= 1000 -> "1080p"; w >= 1200 || h >= 700 -> "720p"; w > 0 -> "SD"; else -> null }
+        val range = when (v.optString("VideoRangeType").uppercase()) {
+            "DOVI", "DOVIWITHHDR10", "DOVIWITHHLG", "DOVIWITHSDR", "DOVIWITHHDR10PLUS" -> "Dolby Vision"
+            "HDR10PLUS" -> "HDR10+"; "HDR10" -> "HDR10"; "HLG" -> "HLG"
+            else -> null
+        }
+        return listOfNotNull(res, range).joinToString(" · ").ifBlank { null }
+    }
 
     /** The codec of the source's default audio stream (or its first one), lower case; null when streams are not listed. */
     fun defaultAudioCodec(source: JSONObject?): String? {

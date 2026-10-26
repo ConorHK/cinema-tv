@@ -1921,8 +1921,13 @@ class MoviesPanel(
     /** A part-watched title for the Continue row: a stream this app saved, or one of the owner's Jellyfin films or episodes. */
     private class Resumable(
         val title: String, val subtitle: String?, val positionMs: Long, val durationMs: Long, val lastMs: Long,
-        val open: () -> Unit, val still: Bitmap?, val stillUrl: String?
+        val open: () -> Unit, val still: Bitmap?, val stillUrl: String?,
+        val quality: String? = null, val isNew: Boolean = false, val remove: () -> Unit = {}
     )
+
+    private val continueSettings by lazy { com.danielportelabyrne.cinema.data.settings.CinemaSettings(AndroidPlatform(activity)) }
+
+    private fun hideFromContinue(key: String) { continueSettings.hiddenContinue = continueSettings.hiddenContinue + key }
 
     /** The row under the hero: what is part-way through, streams and Jellyfin together, most recent first. Hidden when empty. */
     private fun continueRow(gen: Int) {
@@ -1934,18 +1939,23 @@ class MoviesPanel(
 
     private fun fillContinue(row: Row, gen: Int) {
         worker.execute {
-            // Only streams with a saved payload can be reopened.
+            // Only streams with a saved payload can be reopened. Library plays are Jellyfin's to remember, not these.
             val streams = continueStore.load(12).mapNotNull { s ->
                 val payload = s.payload ?: return@mapNotNull null
-                Resumable(s.title, s.subtitle, s.positionMs, s.durationMs, s.lastEngagedMs,
+                if (runCatching { org.json.JSONObject(payload).optString("jf").isNotBlank() }.getOrDefault(false)) return@mapNotNull null
+                Resumable(s.title, s.subtitle?.takeIf { it != "Unknown quality" }, s.positionMs, s.durationMs, s.lastEngagedMs,
                     open = { playbackStarted = true; if (!PlayerActivity.resume(activity, payload)) Toast.makeText(activity, "Couldn't reopen ${s.title}", Toast.LENGTH_LONG).show() },
-                    still = s.imageUri?.let { continueStore.image(it) }, stillUrl = null)
+                    still = s.imageUri?.let { continueStore.image(it) }, stillUrl = null, remove = { continueStore.remove(s) })
             }
-            val library = if (jellyfin.isConnected) jellyfin.continueWatching() else emptyList()
-            val films = library.map { item ->
-                Resumable(item.displayTitle, item.displaySubtitle, item.resumeMs, (item.runtimeMin ?: 0) * 60_000L, item.playedMs ?: 0L,
+            val entries = if (jellyfin.isConnected)
+                com.danielportelabyrne.cinema.data.jellyfin.UpNext.merge(jellyfin.continueWatching(), jellyfin.newDownloads(), System.currentTimeMillis(), continueSettings.hiddenContinue.toSet())
+            else emptyList()
+            val films = entries.map { entry ->
+                val item = entry.item
+                Resumable(item.displayTitle, item.displaySubtitle, item.resumeMs, (item.runtimeMin ?: 0) * 60_000L, entry.atMs,
                     open = { playbackStarted = true; JellyfinPlayback.play(activity, jellyfin, item, listOfNotNull(item.displayTitle, item.episodeLabel()).joinToString(" · "), item.resumeKey) },
-                    still = null, stillUrl = if (item.hasBackdrop) jellyfin.backdropUrl(item.id) else JellyfinApi.episodeImageUrl(JellyfinApi.cleanBase(jellyfin.server), item.id, 640))
+                    still = null, stillUrl = if (item.hasBackdrop) jellyfin.backdropUrl(item.id) else JellyfinApi.episodeImageUrl(JellyfinApi.cleanBase(jellyfin.server), item.id, 640),
+                    quality = item.quality, isNew = entry.isNew, remove = { hideFromContinue(entry.hideKey) })
             }
             val all = (streams + films).sortedByDescending { it.lastMs }.take(12)
             activity.runOnUiThread {
@@ -1965,12 +1975,21 @@ class MoviesPanel(
         card.contentDescription = r.title
         card.title.text = r.title
         val left = if (r.durationMs > 0 && r.positionMs > 0) ((r.durationMs - r.positionMs) / 60_000).toInt().coerceAtLeast(1) else null
-        card.meta.text = listOfNotNull(r.subtitle, left?.let { if (it >= 60) "${it / 60}h ${it % 60}m left" else "$it min left" }).joinToString(" · ")
+        card.meta.text = listOfNotNull("New".takeIf { r.isNew }, r.subtitle, r.quality, left?.let { if (it >= 60) "${it / 60}h ${it % 60}m left" else "$it min left" }).joinToString(" · ")
         card.setProgress(if (r.durationMs > 0) r.positionMs.toFloat() / r.durationMs else 0f)
         r.still?.let { card.setStill(it) }
         r.stillUrl?.let { url -> images.load(url, jellyfin.playbackHeaders(), maxWidth = 640, tag = pageTag) { b -> if (gen == generation) card.setStill(b) } }
         card.onFocus = { lit -> if (lit) reveal(card) }
         card.setOnClickListener { r.open() }
+        // Hold OK to take it off the row.
+        card.setOnLongClickListener {
+            infoSheet.show("CONTINUE WATCHING", r.title, r.subtitle, listOf("It comes back if you play it again."), null, listOf(
+                SheetAction("Remove", "Take it off this row", primary = true) {
+                    worker.execute { r.remove(); ui.post { continueRow?.let { row -> fillContinue(row, generation) } } }
+                }
+            ))
+            true
+        }
         return card
     }
 

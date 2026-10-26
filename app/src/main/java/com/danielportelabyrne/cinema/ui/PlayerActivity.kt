@@ -987,7 +987,7 @@ class PlayerActivity : AppCompatActivity() {
 
     /** Grabs the actual video frame and files it under Continue watching, with what is needed to resume this stream. */
     private fun snapshotToContinue() {
-        if (live) return
+        if (live || jf != null) return   // Jellyfin keeps its own place
         if (!started || ended || items.isEmpty() || player.duration <= 0) return
         val position = player.currentPosition
         if (position < 60_000) return

@@ -195,6 +195,12 @@ class JellyfinClient(platform: Platform) {
         return items.orEmpty().sortedByDescending { it.playedMs ?: 0L }
     }
 
+    /** Unwatched films and episodes, newest download first. Blocking; empty when signed out or unreachable. */
+    fun newDownloads(): List<JellyfinItem> {
+        val uid = userId ?: return emptyList()
+        return request("GET", JellyfinApi.newDownloadsUrl(JellyfinApi.cleanBase(server), uid))?.let { JellyfinApi.parseItems(it) }.orEmpty()
+    }
+
     /** The library as last fetched, without asking the server. */
     fun loadedLibrary(): List<JellyfinItem> = library
 
