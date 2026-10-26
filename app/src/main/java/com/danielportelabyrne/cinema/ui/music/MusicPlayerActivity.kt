@@ -43,11 +43,11 @@ import java.util.concurrent.Executors
 
 /**
  * Full-screen now playing for a queue of tracks from the music server, laid out like Apple Music on a TV: the cover
- * large on the left, the words and progress on the right, over the cover itself blurred into slowly turning colour.
+ * large with its words and progress centred beneath, over the cover itself blurred into slowly turning colour.
  * Built to sit on an OLED panel for hours: the background never stops moving, the layout drifts, and the words dim
  * when the remote is idle. Paused, the cover sinks back and the screen may sleep. Leaving stops the music.
  *
- * With lyrics, the cover and words move into a column on the left and the lyrics fill the right.
+ * With lyrics, that column moves to the left and the lyrics fill the right.
  *
  * Remote: OK plays or pauses, Left and Right step through the queue, Up and Down show or hide lyrics, rewind and
  * fast forward seek, Back leaves.
@@ -74,8 +74,6 @@ class MusicPlayerActivity : Activity() {
     private var lyricsShown: Boolean? = null
     private lateinit var elapsed: TextView
     private lateinit var remaining: TextView
-    private lateinit var nextLabel: TextView
-    private lateinit var next: TextView
 
     private val opened = SystemClock.elapsedRealtime()
     private var lastInput = opened
@@ -141,10 +139,10 @@ class MusicPlayerActivity : Activity() {
         lyricsView = LyricsView(this)
 
         words = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; clipChildren = false }
-        title = Cinema.text(this, "", 56, white(0.96f), weight = 700).apply { maxLines = 2; ellipsize = TextUtils.TruncateAt.END; setLineSpacing(0f, 1.05f) }
-        artist = Cinema.text(this, "", 36, white(0.72f), weight = 500).apply { maxLines = 1; ellipsize = TextUtils.TruncateAt.END }
-        album = Cinema.text(this, "", 28, white(0.48f)).apply { maxLines = 1; ellipsize = TextUtils.TruncateAt.END }
-        scrubber = WaveScrubberView(this, amplitudePx = 11f, wavelengthPx = 140f, thicknessPx = 22f)
+        title = Cinema.text(this, "", 54, white(0.96f), weight = 700).apply { maxLines = 1; ellipsize = TextUtils.TruncateAt.END; gravity = Gravity.CENTER_HORIZONTAL }
+        artist = Cinema.text(this, "", 34, white(0.72f), weight = 500).apply { maxLines = 1; ellipsize = TextUtils.TruncateAt.END; gravity = Gravity.CENTER_HORIZONTAL }
+        album = Cinema.text(this, "", 28, white(0.48f)).apply { maxLines = 1; ellipsize = TextUtils.TruncateAt.END; gravity = Gravity.CENTER_HORIZONTAL }
+        scrubber = WaveScrubberView(this, amplitudePx = 17f, wavelengthPx = 92f, thicknessPx = 22f)
         elapsed = Cinema.text(this, "", 25, white(0.55f), weight = 500)
         remaining = Cinema.text(this, "", 25, white(0.55f), weight = 500).apply { gravity = Gravity.END }
         val times = LinearLayout(this).apply {
@@ -152,43 +150,29 @@ class MusicPlayerActivity : Activity() {
             addView(elapsed, LinearLayout.LayoutParams(0, -2, 1f))
             addView(remaining, LinearLayout.LayoutParams(0, -2, 1f))
         }
-        nextLabel = Cinema.text(this, "Up next", 18, white(0.42f), weight = 700, tracking = 0.16f, caps = true)
-        next = Cinema.text(this, "", 26, white(0.66f), weight = 500).apply { maxLines = 1; ellipsize = TextUtils.TruncateAt.END }
         words.addView(title)
-        words.addView(artist, LinearLayout.LayoutParams(-1, -2).apply { topMargin = px(16) })
-        words.addView(album, LinearLayout.LayoutParams(-1, -2).apply { topMargin = px(8) })
+        words.addView(artist, LinearLayout.LayoutParams(-1, -2).apply { topMargin = px(12) })
+        words.addView(album, LinearLayout.LayoutParams(-1, -2).apply { topMargin = px(6) })
         // The wave keeps room for its playhead's glow; pull it out so the wave's ends line up with the text.
-        words.addView(scrubber, LinearLayout.LayoutParams(-1, px(100)).apply { topMargin = px(40); marginStart = -px(46); marginEnd = -px(46) })
+        words.addView(scrubber, LinearLayout.LayoutParams(-1, px(100)).apply { topMargin = px(28); marginStart = -px(46); marginEnd = -px(46) })
         words.addView(times, LinearLayout.LayoutParams(-1, -2).apply { topMargin = px(2) })
-        words.addView(nextLabel, LinearLayout.LayoutParams(-1, -2).apply { topMargin = px(64) })
-        words.addView(next, LinearLayout.LayoutParams(-1, -2).apply { topMargin = px(8) })
         root.addView(row, FrameLayout.LayoutParams(-2, -2, Gravity.CENTER))
         setContentView(root)
         arrange()
     }
 
-    /**
-     * Without lyrics: the cover, and beside it the words. With lyrics: the cover and a shorter set of words in a
-     * column, and the lyrics filling the right.
-     */
+    /** The cover with the words centred under it: in the middle of the screen, or on the left beside the lyrics. */
     private fun arrange() {
         val withLyrics = Music.lyricsOn && lyricsView.hasLyrics
         if (withLyrics == lyricsShown) return
         lyricsShown = withLyrics
-        row.removeAllViews(); left.removeAllViews()
-        if (withLyrics) {
-            left.addView(art, LinearLayout.LayoutParams(px(LYRIC_ART), px(LYRIC_ART)))
-            left.addView(words, LinearLayout.LayoutParams(px(LYRIC_ART), -2).apply { topMargin = px(44) })
-            row.addView(left, LinearLayout.LayoutParams(-2, -2))
-            row.addView(lyricsView, LinearLayout.LayoutParams(px(LYRICS_WIDTH), px(LYRICS_HEIGHT)).apply { marginStart = px(130) })
-        } else {
-            row.addView(art, LinearLayout.LayoutParams(px(ART), px(ART)))
-            row.addView(words, LinearLayout.LayoutParams(px(WORDS), -2).apply { marginStart = px(GAP) })
+        row.removeAllViews()
+        if (left.childCount == 0) {
+            left.addView(art, LinearLayout.LayoutParams(px(COVER), px(COVER)).apply { gravity = Gravity.CENTER_HORIZONTAL })
+            left.addView(words, LinearLayout.LayoutParams(px(COVER), -2).apply { topMargin = px(44) })
         }
-        Cinema.style(title, if (withLyrics) 46 else 62, white(0.96f), weight = 700)
-        Cinema.style(artist, if (withLyrics) 32 else 40, white(0.72f), weight = 500)
-        listOf(album, nextLabel, next).forEach { it.visibility = if (withLyrics) View.GONE else View.VISIBLE }
-        if (!withLyrics && tracks.getOrNull(shownIndex + 1) == null) nextLabel.visibility = View.GONE
+        row.addView(left, LinearLayout.LayoutParams(-2, -2))
+        if (withLyrics) row.addView(lyricsView, LinearLayout.LayoutParams(px(LYRICS_WIDTH), px(LYRICS_HEIGHT)).apply { marginStart = px(150) })
         row.alpha = 0f
         row.animate().alpha(1f).setDuration(400).start()
     }
@@ -200,7 +184,7 @@ class MusicPlayerActivity : Activity() {
             shownIndex = i
             lastInput = SystemClock.elapsedRealtime()
             Music.cover(t.coverArt, 1000)?.let { key ->
-                images.load(key, maxWidth = px(ART)) { b ->
+                images.load(key, maxWidth = px(COVER)) { b ->
                     if (shownIndex != i) return@load
                     art.setImageBitmap(b)
                     worker.execute {
@@ -219,9 +203,6 @@ class MusicPlayerActivity : Activity() {
         title.text = t.title
         artist.text = t.artist.orEmpty()
         album.text = t.album.orEmpty()
-        val following = tracks.getOrNull(i + 1)
-        nextLabel.visibility = if (following == null || lyricsShown == true) View.GONE else View.VISIBLE
-        next.text = following?.let { n -> n.title + (n.artist?.let { " · $it" } ?: "") }.orEmpty()
     }
 
     /** Playing, the cover sits full size; paused, it sinks back a little. */
@@ -274,7 +255,7 @@ class MusicPlayerActivity : Activity() {
         android.util.Log.w(TAG, "track failed: ${error.errorCodeName}")
         failures++
         if (failures < 3 && player.hasNextMediaItem()) { player.seekToNextMediaItem(); player.prepare(); player.play() }
-        else { nextLabel.visibility = View.GONE; next.text = "Couldn't play this track."; lastInput = SystemClock.elapsedRealtime(); keepAwake() }
+        else { album.text = "Couldn't play this track."; lastInput = SystemClock.elapsedRealtime(); keepAwake() }
     }
 
     // --- Remote ---------------------------------------------------------------------------------------
@@ -314,10 +295,7 @@ class MusicPlayerActivity : Activity() {
 
     companion object {
         private const val TAG = "CinemaMusic"
-        private const val ART = 800
-        private const val WORDS = 820
-        private const val GAP = 110
-        private const val LYRIC_ART = 600
+        private const val COVER = 640
         private const val LYRICS_WIDTH = 900
         private const val LYRICS_HEIGHT = 960
         private const val DRIFT = 36
