@@ -90,8 +90,9 @@ object FastFocus {
             r.bottom + bottomInset > bottom -> r.bottom + bottomInset - page.height
             else -> return
         }.coerceAtLeast(0)
-        // Close to the top, go all the way up: otherwise the page can stop short of its first row and look stuck.
-        val snapped = if (target < 160 * page.resources.displayMetrics.density) 0 else target
+        // Moving up close to the top, go all the way: otherwise the page can stop short of its first row and look
+        // stuck. Moving down, never snap, or the first steps from the top would not move at all.
+        val snapped = if (target < top && target < 160 * page.resources.displayMetrics.density) 0 else target
         Motion.glideVerticalTo(page, snapped)
     }
 
