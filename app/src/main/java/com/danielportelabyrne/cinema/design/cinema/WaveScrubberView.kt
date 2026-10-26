@@ -35,12 +35,14 @@ class WaveScrubberView(context: Context, private val amplitudePx: Float = 13f, p
     private fun band(color: Int, width: Float) = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         this.color = color; style = Paint.Style.STROKE; strokeWidth = width; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
     }
-    private val unwatched = band(0xFF4A423B.toInt(), thick * 0.7f)
+    // Pale line, dark rim: reads on any picture.
+    private val unwatchedRim = band(0x66000000, thick * 0.7f + Cinema.pxf(context, 3))
+    private val unwatched = band(Cinema.alpha(Cinema.CREAM, 0.42f), thick * 0.7f)
     private val outer = band(Cinema.MAROON, thick)
     private val middle = band(Cinema.STRIPE_TERRA, thick * 0.667f)
     private val inner = band(Cinema.STRIPE_SAFFRON, thick * 0.333f)
     private val markerFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF1B0D06.toInt() }
-    private val markerAhead = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Cinema.alpha(Cinema.CREAM, 0.55f) }
+    private val markerAhead = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Cinema.alpha(Cinema.CREAM, 0.9f) }
     private val bulb = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFF7EFE0.toInt() }
     private val glow = Paint(Paint.ANTI_ALIAS_FLAG)
     private val glowRadius = Cinema.pxf(context, 46)
@@ -69,7 +71,7 @@ class WaveScrubberView(context: Context, private val amplitudePx: Float = 13f, p
         val px = playheadX()
         val base = height / 2f
         // Unwatched, to the right of the playhead.
-        canvas.save(); canvas.clipRect(px, 0f, width.toFloat(), height.toFloat()); canvas.drawPath(path, unwatched); canvas.restore()
+        canvas.save(); canvas.clipRect(px, 0f, width.toFloat(), height.toFloat()); canvas.drawPath(path, unwatchedRim); canvas.drawPath(path, unwatched); canvas.restore()
         // Watched, three bands; the clip leaves a flat cut at the playhead, which the bulb then covers.
         canvas.save(); canvas.clipRect(0f, 0f, px, height.toFloat())
         canvas.drawPath(path, outer); canvas.drawPath(path, middle); canvas.drawPath(path, inner)
