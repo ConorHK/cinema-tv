@@ -33,7 +33,7 @@ import androidx.media3.datasource.ResolvingDataSource
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
-import com.danielportelabyrne.cinema.data.music.BurnIn
+import com.danielportelabyrne.cinema.data.music.SeekKeys
 import com.danielportelabyrne.cinema.data.music.MusicTrack
 import com.danielportelabyrne.cinema.data.music.SubsonicClient
 import com.danielportelabyrne.cinema.design.Cinema
@@ -44,13 +44,13 @@ import java.util.concurrent.Executors
 /**
  * Full-screen now playing for a queue of tracks from the music server, laid out like Apple Music on a TV: the cover
  * large with its words and progress centred beneath, over the cover itself blurred into slowly turning colour.
- * Built to sit on an OLED panel for hours: the background never stops moving and the words dim when the remote
- * is idle. Paused, the cover sinks back and the screen may sleep. Leaving stops the music.
+ * Built to sit on an OLED panel for hours: the background never stops moving. Paused, the cover sinks back and
+ * the screen may sleep. Leaving stops the music.
  *
  * With lyrics, that column moves to the left and the lyrics fill the right.
  *
- * Remote: OK plays or pauses, Left and Right step through the queue, Up and Down show or hide lyrics, rewind and
- * fast forward seek, Back leaves.
+ * Remote: OK plays or pauses. Left and Right jump 10 s on a tap, change track on a double tap, and scan while held.
+ * Up and Down show or hide lyrics. Rewind and fast forward seek, Back leaves.
  */
 @UnstableApi
 class MusicPlayerActivity : Activity() {
@@ -76,7 +76,12 @@ class MusicPlayerActivity : Activity() {
     private lateinit var remaining: TextView
 
     private val opened = SystemClock.elapsedRealtime()
-    private var lastInput = opened
+    private val seekKeys = SeekKeys()
+    /** While Left or Right is held: which way, from where, since when (uptime), and whether to play after. */
+    private var scanDirection = 0
+    private var scanFrom = 0L
+    private var scanSince = 0L
+    private var scanResume = false
     private var shownIndex = -1
     private var scrobbled = -1
     private var failures = 0
@@ -182,7 +187,6 @@ class MusicPlayerActivity : Activity() {
         val t = tracks.getOrNull(i) ?: return
         if (i != shownIndex) {
             shownIndex = i
-            lastInput = SystemClock.elapsedRealtime()
             Music.cover(t.coverArt, 1000)?.let { key ->
                 images.load(key, maxWidth = px(COVER)) { b ->
                     if (shownIndex != i) return@load
@@ -207,7 +211,7 @@ class MusicPlayerActivity : Activity() {
 
     /** Playing, the cover sits full size; paused, it sinks back a little. */
     private fun settleArt() {
-        val s = if (player.isPlaying || player.playbackState == Player.STATE_BUFFERING) 1f else PAUSED_SCALE
+        val s = if (player.isPlaying || scanDirection != 0 || player.playbackState == Player.STATE_BUFFERING) 1f else PAUSED_SCALE
         art.animate().scaleX(s).scaleY(s).setDuration(450).setInterpolator(EASE).start()
     }
 
@@ -219,25 +223,52 @@ class MusicPlayerActivity : Activity() {
             val now = SystemClock.elapsedRealtime()
             val clock = now - opened
             backdrop.advance(clock)
-            val chrome = BurnIn.chromeAlpha(now - lastInput)
-            words.alpha = chrome
-            art.alpha = 0.75f + 0.25f * chrome
+            act(seekKeys.due(SystemClock.uptimeMillis()))
             updateProgress()
             Choreographer.getInstance().postFrameCallback(this)
         }
     }
 
     private fun updateProgress() {
-        val pos = player.currentPosition.coerceAtLeast(0)
-        val len = player.duration.takeIf { it != C.TIME_UNSET && it > 0 } ?: (tracks.getOrNull(shownIndex)?.durationSec?.times(1000L) ?: 0L)
+        val pos = if (scanDirection != 0) scanTarget() else player.currentPosition.coerceAtLeast(0)
+        val len = length()
         scrubber.progress = if (len > 0) pos.toFloat() / len else 0f
         lyricsView.position(pos, scrubber.progress)
         elapsed.text = clock(pos)
         remaining.text = if (len > 0) "-" + clock((len - pos).coerceAtLeast(0)) else ""
         // Counts as played at half the track or four minutes, the usual scrobble rule.
-        if (len > 0 && scrobbled != shownIndex && (pos > len / 2 || pos > 4 * 60_000)) {
+        if (scanDirection == 0 && len > 0 && scrobbled != shownIndex && (pos > len / 2 || pos > 4 * 60_000)) {
             scrobbled = shownIndex
             tracks.getOrNull(shownIndex)?.let { t -> worker.execute { client.scrobble(t.id, submission = true) } }
+        }
+    }
+
+    private fun length(): Long =
+        player.duration.takeIf { it != C.TIME_UNSET && it > 0 } ?: (tracks.getOrNull(shownIndex)?.durationSec?.times(1000L) ?: 0L)
+
+    /** Where a scan has reached, short of the track's end so letting go never lands on the next track. */
+    private fun scanTarget(): Long {
+        val last = (length() - 1_000).coerceAtLeast(0)
+        return (scanFrom + scanDirection * SeekKeys.scanOffset(SystemClock.uptimeMillis() - scanSince)).coerceIn(0, last)
+    }
+
+    private fun act(action: SeekKeys.Action?) {
+        when (action) {
+            is SeekKeys.Action.Jump -> player.seekTo((player.currentPosition + action.direction * SeekKeys.JUMP_MS).coerceIn(0, (length() - 1_000).coerceAtLeast(0)))
+            is SeekKeys.Action.Skip -> if (action.direction > 0) { if (player.hasNextMediaItem()) player.seekToNextMediaItem() }
+                else if (player.hasPreviousMediaItem()) player.seekToPreviousMediaItem() else player.seekTo(0)
+            is SeekKeys.Action.ScanStart -> {
+                scanDirection = action.direction; scanFrom = player.currentPosition; scanSince = SystemClock.uptimeMillis()
+                scanResume = player.playWhenReady
+                player.pause()
+            }
+            SeekKeys.Action.ScanEnd -> {
+                val to = scanTarget()
+                scanDirection = 0
+                player.seekTo(to)
+                if (scanResume) player.play()
+            }
+            null -> Unit
         }
     }
 
@@ -253,15 +284,10 @@ class MusicPlayerActivity : Activity() {
         android.util.Log.w(TAG, "track failed: ${error.errorCodeName}")
         failures++
         if (failures < 3 && player.hasNextMediaItem()) { player.seekToNextMediaItem(); player.prepare(); player.play() }
-        else { album.text = "Couldn't play this track."; lastInput = SystemClock.elapsedRealtime(); keepAwake() }
+        else { album.text = "Couldn't play this track."; keepAwake() }
     }
 
     // --- Remote ---------------------------------------------------------------------------------------
-
-    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        if (event.action == KeyEvent.ACTION_DOWN) lastInput = SystemClock.elapsedRealtime()
-        return super.dispatchKeyEvent(event)
-    }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
         when (keyCode) {
@@ -269,14 +295,21 @@ class MusicPlayerActivity : Activity() {
                 if (event.repeatCount == 0) { if (player.playbackState == Player.STATE_ENDED) { player.seekTo(0, 0L); player.play() } else if (player.isPlaying) player.pause() else player.play() }
             KeyEvent.KEYCODE_MEDIA_PLAY -> player.play()
             KeyEvent.KEYCODE_MEDIA_PAUSE -> player.pause()
-            KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_MEDIA_NEXT -> if (event.repeatCount == 0 && player.hasNextMediaItem()) player.seekToNextMediaItem()
-            KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_MEDIA_PREVIOUS -> if (event.repeatCount == 0) player.seekToPrevious()
+            KeyEvent.KEYCODE_DPAD_RIGHT -> act(seekKeys.down(1, event.repeatCount, event.eventTime))
+            KeyEvent.KEYCODE_DPAD_LEFT -> act(seekKeys.down(-1, event.repeatCount, event.eventTime))
+            KeyEvent.KEYCODE_MEDIA_NEXT -> if (event.repeatCount == 0 && player.hasNextMediaItem()) player.seekToNextMediaItem()
+            KeyEvent.KEYCODE_MEDIA_PREVIOUS -> if (event.repeatCount == 0) player.seekToPrevious()
             KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> player.seekTo(player.currentPosition + SEEK_MS)
             KeyEvent.KEYCODE_MEDIA_REWIND -> player.seekTo((player.currentPosition - SEEK_MS).coerceAtLeast(0))
             KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN -> if (event.repeatCount == 0 && lyricsView.hasLyrics) { Music.lyricsOn = !Music.lyricsOn; arrange() }
             else -> return super.onKeyDown(keyCode, event)
         }
         return true
+    }
+
+    override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
+        if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) { act(seekKeys.up(event.eventTime)); return true }
+        return super.onKeyUp(keyCode, event)
     }
 
     override fun onStop() {
