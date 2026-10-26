@@ -72,6 +72,12 @@ class LyricsView(context: Context) : FrameLayout(context) {
 
     private fun anchor() = height * 0.32f
 
+    /** The list is as tall as all its lines, not the window, or lines past the first screen are never laid out. */
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        super.onMeasure(widthMeasureSpec, heightMeasureSpec)
+        list.measure(MeasureSpec.makeMeasureSpec(measuredWidth, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED))
+    }
+
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         mask.shader = LinearGradient(0f, 0f, 0f, h.toFloat(), intArrayOf(0, -0x1000000, -0x1000000, 0), floatArrayOf(0f, 0.14f, 0.8f, 1f), Shader.TileMode.CLAMP)
         current = NONE

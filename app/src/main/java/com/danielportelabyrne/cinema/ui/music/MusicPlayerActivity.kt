@@ -124,7 +124,7 @@ class MusicPlayerActivity : Activity() {
     private fun white(alpha: Float) = Cinema.alpha(0xFFFFFFFF.toInt(), alpha)
 
     private fun buildViews() {
-        val root = FrameLayout(this).apply { setBackgroundColor(Cinema.BG) }
+        val root = FrameLayout(this).apply { setBackgroundColor(Cinema.BG); clipChildren = false }
         backdrop = ArtBackdrop(this)
         root.addView(backdrop, FrameLayout.LayoutParams(-1, -1))
 
@@ -144,9 +144,9 @@ class MusicPlayerActivity : Activity() {
         title = Cinema.text(this, "", 56, white(0.96f), weight = 700).apply { maxLines = 2; ellipsize = TextUtils.TruncateAt.END; setLineSpacing(0f, 1.05f) }
         artist = Cinema.text(this, "", 36, white(0.72f), weight = 500).apply { maxLines = 1; ellipsize = TextUtils.TruncateAt.END }
         album = Cinema.text(this, "", 28, white(0.48f)).apply { maxLines = 1; ellipsize = TextUtils.TruncateAt.END }
-        scrubber = WaveScrubberView(this, amplitudePx = 8f, wavelengthPx = 120f, thicknessPx = 16f)
-        elapsed = Cinema.text(this, "", 22, white(0.55f), weight = 500)
-        remaining = Cinema.text(this, "", 22, white(0.55f), weight = 500).apply { gravity = Gravity.END }
+        scrubber = WaveScrubberView(this, amplitudePx = 11f, wavelengthPx = 140f, thicknessPx = 22f)
+        elapsed = Cinema.text(this, "", 25, white(0.55f), weight = 500)
+        remaining = Cinema.text(this, "", 25, white(0.55f), weight = 500).apply { gravity = Gravity.END }
         val times = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             addView(elapsed, LinearLayout.LayoutParams(0, -2, 1f))
@@ -158,7 +158,7 @@ class MusicPlayerActivity : Activity() {
         words.addView(artist, LinearLayout.LayoutParams(-1, -2).apply { topMargin = px(16) })
         words.addView(album, LinearLayout.LayoutParams(-1, -2).apply { topMargin = px(8) })
         // The wave keeps room for its playhead's glow; pull it out so the wave's ends line up with the text.
-        words.addView(scrubber, LinearLayout.LayoutParams(-1, px(80)).apply { topMargin = px(36); marginStart = -px(46); marginEnd = -px(46) })
+        words.addView(scrubber, LinearLayout.LayoutParams(-1, px(100)).apply { topMargin = px(40); marginStart = -px(46); marginEnd = -px(46) })
         words.addView(times, LinearLayout.LayoutParams(-1, -2).apply { topMargin = px(2) })
         words.addView(nextLabel, LinearLayout.LayoutParams(-1, -2).apply { topMargin = px(64) })
         words.addView(next, LinearLayout.LayoutParams(-1, -2).apply { topMargin = px(8) })
@@ -180,13 +180,13 @@ class MusicPlayerActivity : Activity() {
             left.addView(art, LinearLayout.LayoutParams(px(LYRIC_ART), px(LYRIC_ART)))
             left.addView(words, LinearLayout.LayoutParams(px(LYRIC_ART), -2).apply { topMargin = px(44) })
             row.addView(left, LinearLayout.LayoutParams(-2, -2))
-            row.addView(lyricsView, LinearLayout.LayoutParams(px(LYRICS_WIDTH), px(LYRICS_HEIGHT)).apply { marginStart = px(150) })
+            row.addView(lyricsView, LinearLayout.LayoutParams(px(LYRICS_WIDTH), px(LYRICS_HEIGHT)).apply { marginStart = px(130) })
         } else {
             row.addView(art, LinearLayout.LayoutParams(px(ART), px(ART)))
             row.addView(words, LinearLayout.LayoutParams(px(WORDS), -2).apply { marginStart = px(GAP) })
         }
-        Cinema.style(title, if (withLyrics) 40 else 56, white(0.96f), weight = 700)
-        Cinema.style(artist, if (withLyrics) 28 else 36, white(0.72f), weight = 500)
+        Cinema.style(title, if (withLyrics) 46 else 62, white(0.96f), weight = 700)
+        Cinema.style(artist, if (withLyrics) 32 else 40, white(0.72f), weight = 500)
         listOf(album, nextLabel, next).forEach { it.visibility = if (withLyrics) View.GONE else View.VISIBLE }
         if (!withLyrics && tracks.getOrNull(shownIndex + 1) == null) nextLabel.visibility = View.GONE
         row.alpha = 0f
@@ -314,12 +314,12 @@ class MusicPlayerActivity : Activity() {
 
     companion object {
         private const val TAG = "CinemaMusic"
-        private const val ART = 660
-        private const val WORDS = 760
+        private const val ART = 800
+        private const val WORDS = 820
         private const val GAP = 110
-        private const val LYRIC_ART = 520
-        private const val LYRICS_WIDTH = 940
-        private const val LYRICS_HEIGHT = 900
+        private const val LYRIC_ART = 600
+        private const val LYRICS_WIDTH = 900
+        private const val LYRICS_HEIGHT = 960
         private const val DRIFT = 36
         private const val PAUSED_SCALE = 0.86f
         private const val SEEK_MS = 10_000L
