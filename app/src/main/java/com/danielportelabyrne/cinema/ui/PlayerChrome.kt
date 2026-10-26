@@ -170,16 +170,16 @@ class PlayerChrome(context: Context) : FrameLayout(context) {
         val gap = p(100)
         transport.addView(roundButton(R.drawable.ic_cin_prev, 72, 44) { onPrevious(); nudge() })
         transport.addView(seekButton(R.drawable.ic_cin_b10, -10_000), LinearLayout.LayoutParams(p(96), p(96)).apply { marginStart = gap - p(28) })
-        // The disc is 112 px, but its five rings and focus glow reach well past it, so its view is sized to hold them
+        // The disc is small, but its five rings and focus glow reach well past it, so its view is sized to hold them
         // (otherwise the controls layer clips the rings); the extra is taken back out of the gaps either side.
-        val ringRoom = p((PauseDisc.BOX - 112) / 2)
+        val ringRoom = p((PauseDisc.BOX - PauseDisc.DISC) / 2)
         transport.addView(pauseButton.apply { setOnClickListener { if (isPlaying()) onPause() else onPlay(); nudge() } },
             LinearLayout.LayoutParams(p(PauseDisc.BOX), p(PauseDisc.BOX)).apply { marginStart = gap - p(16) - ringRoom })
         transport.addView(seekButton(R.drawable.ic_cin_f10, 10_000), LinearLayout.LayoutParams(p(96), p(96)).apply { marginStart = gap - p(16) - ringRoom })
         nextButton = roundButton(R.drawable.ic_cin_next, 72, 44) { onNext?.invoke(); nudge() }
         transport.addView(nextButton, LinearLayout.LayoutParams(p(72), p(72)).apply { marginStart = gap - p(28) })
         // Centred on y = 696 as in the mockup; the row is as tall as the pause disc's ringed box.
-        controls.addView(transport, LayoutParams(-2, -2, Gravity.CENTER_HORIZONTAL).apply { topMargin = p(696 - PauseDisc.BOX / 2) })
+        controls.addView(transport, LayoutParams(-2, -2, Gravity.CENTER_HORIZONTAL).apply { topMargin = p(760 - PauseDisc.BOX / 2) })
 
         place(controls, scrubber, 50, 854, p(1820), p(92))
         controls.addView(chapterLabel, LayoutParams(-1, -2).apply { topMargin = p(952) })
@@ -662,8 +662,10 @@ class PlayerChrome(context: Context) : FrameLayout(context) {
         private val play = context.getDrawable(R.drawable.ic_cin_play)!!.mutate().apply { setTint(0xFF1B120C.toInt()) }
         init { isFocusable = true; isClickable = true; contentDescription = "Play or pause" }
         companion object {
-            /** Mockup px the view needs: the 112 px disc, 5 rings of 9 px each side, and room for the soft focus glow. */
-            const val BOX = 112 + 2 * 45 + 2 * 50
+            const val DISC = 80
+            const val RING = 7
+            /** Mockup px the view needs: the disc, 5 rings each side, and room for the soft focus glow. */
+            const val BOX = DISC + 2 * 5 * RING + 2 * 50
         }
         override fun onFocusChanged(gainFocus: Boolean, direction: Int, previouslyFocusedRect: Rect?) {
             super.onFocusChanged(gainFocus, direction, previouslyFocusedRect); invalidate()
@@ -671,14 +673,14 @@ class PlayerChrome(context: Context) : FrameLayout(context) {
         }
         override fun onDraw(canvas: Canvas) {
             val c = width / 2f
-            val r = Cinema.pxf(context, 56)   // the cream disc itself; the view is larger to hold the rings and glow
-            val step = Cinema.pxf(context, 9)
+            val r = Cinema.pxf(context, DISC / 2)   // the cream disc itself; the view is larger to hold the rings and glow
+            val step = Cinema.pxf(context, RING)
             if (isFocused && android.os.Build.VERSION.SDK_INT >= 28) canvas.drawCircle(c, c, r + step * 6, glow)
             // Outermost first: maroon, red, terracotta, orange, saffron, then the cream disc.
             for (i in 5 downTo 1) { paint.color = Cinema.RINGS[5 - i]; canvas.drawCircle(c, c, r + step * i, paint) }
             paint.color = Cinema.CREAM; canvas.drawCircle(c, c, r, paint)
             val icon = if (playing) pause else play
-            val s = Cinema.px(context, 25)
+            val s = Cinema.px(context, 21)
             icon.setBounds((c - s).toInt(), (c - s).toInt(), (c + s).toInt(), (c + s).toInt()); icon.draw(canvas)
         }
     }
