@@ -154,7 +154,7 @@ class MusicPlayerActivity : Activity() {
         words.addView(artist, LinearLayout.LayoutParams(-1, -2).apply { topMargin = px(12) })
         words.addView(album, LinearLayout.LayoutParams(-1, -2).apply { topMargin = px(6) })
         // The wave keeps room for its playhead's glow; pull it out so the wave's ends line up with the text.
-        words.addView(scrubber, LinearLayout.LayoutParams(-1, px(100)).apply { topMargin = px(28); marginStart = -px(46); marginEnd = -px(46) })
+        words.addView(scrubber, LinearLayout.LayoutParams(-1, px(86)).apply { topMargin = px(20); marginStart = -px(46); marginEnd = -px(46) })
         words.addView(times, LinearLayout.LayoutParams(-1, -2).apply { topMargin = px(2) })
         root.addView(row, FrameLayout.LayoutParams(-2, -2, Gravity.CENTER))
         setContentView(root)
@@ -169,7 +169,7 @@ class MusicPlayerActivity : Activity() {
         row.removeAllViews()
         if (left.childCount == 0) {
             left.addView(art, LinearLayout.LayoutParams(px(COVER), px(COVER)).apply { gravity = Gravity.CENTER_HORIZONTAL })
-            left.addView(words, LinearLayout.LayoutParams(px(COVER), -2).apply { topMargin = px(44) })
+            left.addView(words, LinearLayout.LayoutParams(px(COVER), -2).apply { topMargin = px(36) })
         }
         row.addView(left, LinearLayout.LayoutParams(-2, -2))
         if (withLyrics) row.addView(lyricsView, LinearLayout.LayoutParams(px(LYRICS_WIDTH), px(LYRICS_HEIGHT)).apply { marginStart = px(150) })
@@ -293,9 +293,9 @@ class MusicPlayerActivity : Activity() {
 
     companion object {
         private const val TAG = "CinemaMusic"
-        private const val COVER = 640
+        private const val COVER = 560
         private const val LYRICS_WIDTH = 900
-        private const val LYRICS_HEIGHT = 960
+        private const val LYRICS_HEIGHT = 900
         private const val PAUSED_SCALE = 0.86f
         private const val SEEK_MS = 10_000L
         private val EASE = PathInterpolator(0.3f, 0f, 0.2f, 1f)
