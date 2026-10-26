@@ -44,8 +44,8 @@ import java.util.concurrent.Executors
 /**
  * Full-screen now playing for a queue of tracks from the music server, laid out like Apple Music on a TV: the cover
  * large with its words and progress centred beneath, over the cover itself blurred into slowly turning colour.
- * Built to sit on an OLED panel for hours: the background never stops moving, the layout drifts, and the words dim
- * when the remote is idle. Paused, the cover sinks back and the screen may sleep. Leaving stops the music.
+ * Built to sit on an OLED panel for hours: the background never stops moving and the words dim when the remote
+ * is idle. Paused, the cover sinks back and the screen may sleep. Leaving stops the music.
  *
  * With lyrics, that column moves to the left and the lyrics fill the right.
  *
@@ -219,8 +219,6 @@ class MusicPlayerActivity : Activity() {
             val now = SystemClock.elapsedRealtime()
             val clock = now - opened
             backdrop.advance(clock)
-            val (dx, dy) = BurnIn.drift(clock, px(DRIFT).toFloat())
-            row.translationX = dx; row.translationY = dy
             val chrome = BurnIn.chromeAlpha(now - lastInput)
             words.alpha = chrome
             art.alpha = 0.75f + 0.25f * chrome
@@ -298,7 +296,6 @@ class MusicPlayerActivity : Activity() {
         private const val COVER = 640
         private const val LYRICS_WIDTH = 900
         private const val LYRICS_HEIGHT = 960
-        private const val DRIFT = 36
         private const val PAUSED_SCALE = 0.86f
         private const val SEEK_MS = 10_000L
         private val EASE = PathInterpolator(0.3f, 0f, 0.2f, 1f)
