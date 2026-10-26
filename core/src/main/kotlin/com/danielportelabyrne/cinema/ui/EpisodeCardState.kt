@@ -30,7 +30,7 @@ data class CardLook(
  * What Sonarr says about the episode itself wins over what Seerr says about its season.
  *
  * An episode that has not aired can still be asked for: Sonarr then watches for it and grabs it once it is out. It
- * keeps its greyed still and "Airs …" label either way; it has no Play (there is nothing to stream yet).
+ * keeps its greyed still and "Airs …" label either way; it has no Play (there is nothing to stream yet). Nor does anything requested or downloading: Download stands alone.
  */
 fun episodeCardState(
     inLibrary: Boolean,
@@ -59,9 +59,9 @@ fun episodeCardState(
     return when (state) {
         CardState.LIBRARY -> CardLook(state, "IN LIBRARY", true, playShown = true, downloadShown = true, downloadFocusable = false)
         CardState.DOWNLOADING -> CardLook(state, if (progress != null) "DOWNLOADING ${Math.round(progress * 100)}%" else "DOWNLOADING", true,
-            playShown = true, downloadShown = true, downloadFocusable = true, progress = progress)
-        CardState.REQUESTED -> CardLook(state, "REQUESTED", false, playShown = true, downloadShown = true, downloadFocusable = true)
-        CardState.REQUEST -> CardLook(state, null, false, playShown = true, downloadShown = true, downloadFocusable = true)
+            playShown = false, downloadShown = true, downloadFocusable = true, progress = progress)
+        CardState.REQUESTED -> CardLook(state, "REQUESTED", false, playShown = false, downloadShown = true, downloadFocusable = true)
+        CardState.REQUEST -> CardLook(state, null, false, playShown = false, downloadShown = true, downloadFocusable = true)
         CardState.STREAM_ONLY -> CardLook(state, null, false, playShown = true, downloadShown = false, downloadFocusable = false)
         CardState.UNAIRED -> CardLook(state, null, false, playShown = false, downloadShown = canRequest, downloadFocusable = canRequest, unaired = true)
         CardState.UNAIRED_REQUESTED -> CardLook(state, "REQUESTED", false, playShown = false, downloadShown = true, downloadFocusable = true, unaired = true)
@@ -131,15 +131,5 @@ object EpisodeCards {
             if (downloading > 0) parts += "$downloading downloading" to false
         }
         return parts
-    }
-
-    /** The season action's label: a request for a season nobody has asked for, otherwise where it has got to. Null hides it. */
-    fun seasonAction(availability: Availability, seasonName: String, allInLibrary: Boolean): String? = when {
-        allInLibrary -> null
-        availability == Availability.AVAILABLE -> "In your library"
-        availability == Availability.NONE -> "Download $seasonName"
-        availability == Availability.DOWNLOADING -> "Downloading…"
-        availability == Availability.PARTIAL -> "Partly downloaded"
-        else -> "Requested ✓"
     }
 }

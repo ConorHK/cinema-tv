@@ -68,7 +68,7 @@ class EpisodeCardStateTest {
 
     @Test fun an_aired_episode_asked_for_is_plainly_requested() {
         val look = state(airDate = "2025-03-30", sonarr = EpisodeState.REQUESTED)
-        assertEquals(CardState.REQUESTED, look.state); assertFalse(look.unaired); assertTrue(look.playShown)
+        assertEquals(CardState.REQUESTED, look.state); assertFalse(look.unaired); assertFalse(look.playShown)
     }
 
     @Test fun no_air_date_is_airs_tba_and_can_be_asked_for() {
@@ -105,13 +105,9 @@ class EpisodeCardStateTest {
         assertNull(EpisodeCards.download(items, 7, 2, 2)); assertNull(EpisodeCards.download(items, null, 2, 1))
     }
 
-    @Test fun season_bar_counts_and_action() {
+    @Test fun season_bar_counts() {
         assertEquals(listOf("8 episodes" to true, "All in your library" to false), EpisodeCards.seasonInfo(8, 8, 0))
         assertEquals(listOf("10 episodes" to true, "1 in library" to false, "1 downloading" to false), EpisodeCards.seasonInfo(10, 1, 1))
         assertEquals(listOf("1 episode" to true), EpisodeCards.seasonInfo(1, 0, 0))
-        assertEquals("Download Season 2", EpisodeCards.seasonAction(Availability.NONE, "Season 2", false))
-        assertEquals("Requested ✓", EpisodeCards.seasonAction(Availability.PROCESSING, "Season 2", false))
-        assertEquals("In your library", EpisodeCards.seasonAction(Availability.AVAILABLE, "Season 2", false))
-        assertNull(EpisodeCards.seasonAction(Availability.AVAILABLE, "Season 1", true))
     }
 }
