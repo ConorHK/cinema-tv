@@ -627,6 +627,11 @@ class MoviesPanel(
      */
     fun navigate(focused: View, direction: Int): Boolean {
         if (streamLoading != null || voiceActive) return true
+        // Down from a title's buttons, or Up from its episodes, goes to the season shown, not whichever tab is nearest.
+        if (detailOpen && (direction == View.FOCUS_DOWN && detailButtonRow?.let { isWithin(focused, it) } == true ||
+                direction == View.FOCUS_UP && seasonRail?.let { isWithin(focused, it) } == true)) {
+            seasonTab?.invoke()?.takeIf { it.isAttachedToWindow && it.isShown }?.let { it.requestFocus(); return true }
+        }
         if (!isWithin(focused, top)) return false
         val items = shownTabs()
         val at = items.indexOfFirst { isWithin(focused, it) }
@@ -3047,6 +3052,8 @@ class MoviesPanel(
         // The title's own buttons sit at the top of the page: focusing one scrolls all the way up, so the title and
         // eyebrow come back, instead of stopping at the point where the button just becomes visible.
         (0 until buttons.childCount).forEach { i -> buttons.getChildAt(i).setOnFocusChangeListener { _, f -> if (f) scroll.post { scroll.smoothScrollTo(0, 0) } } }
+        seasonTab = null; seasonRail = null
+        detailButtonRow = buttons
         moreRow?.let { r ->
             // Room below the row, so the page can slide it up near the top of the screen.
             column.setPadding(column.paddingLeft, column.paddingTop, column.paddingRight, Cinema.px(activity, 520))
@@ -3357,6 +3364,13 @@ class MoviesPanel(
         primary.setOnClickListener { playbackStarted = true; remember(e.title, streamed = false); JellyfinPlayback.play(activity, jellyfin, ep, "${e.title.name} · S${ep.season} E${ep.episode}", "jf:${ep.id}") }
     }
 
+    /** The open series page's selected season tab. */
+    private var seasonTab: (() -> View?)? = null
+    /** The open title page's own buttons; Down from them goes to [seasonTab]. */
+    private var detailButtonRow: View? = null
+    /** The open series page's episode rail; Up from it goes to [seasonTab]. */
+    private var seasonRail: View? = null
+
     /** Returns a restate of the shown season, for when Sonarr's episode states or downloads arrive later. */
     private fun drawSeasons(box: LinearLayout, e: Entry, tmdb: Long?, seasons: List<SeasonState>, owned: List<JellyfinItem>,
                             states: MutableMap<Pair<Int, Int>, EpisodeState>, downloads: List<QueueItem>): () -> Unit {
@@ -3384,6 +3398,7 @@ class MoviesPanel(
 
         // The episode rail, 32 px under the bar (the row's own 16 px padding plus 16 more).
         val rail = row(null, null, into = box, inset = false)
+        seasonRail = rail.scroller
         (rail.scroller.layoutParams as LinearLayout.LayoutParams).topMargin = Cinema.px(activity, 16)
 
         val tabs = LinkedHashMap<View, SeasonState>()
@@ -3393,6 +3408,7 @@ class MoviesPanel(
         var railTarget: View? = null
         var restateShown: () -> Unit = {}
         fun selectedTab(): View? = tabs.entries.firstOrNull { it.value === shown }?.key
+        seasonTab = ::selectedTab
 
         fun setInfo(parts: List<Pair<String, Boolean>>) {
             info.removeAllViews()

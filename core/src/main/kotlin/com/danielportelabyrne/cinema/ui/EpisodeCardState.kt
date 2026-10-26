@@ -131,13 +131,12 @@ object EpisodeCards {
     }
 
     /**
-     * The season bar's info, as (text, emphasised) pieces: "10 episodes", then "1 in library" and "1 downloading", or
-     * "All in your library" when every episode is there.
+     * The season bar's info, as (text, emphasised) pieces: "10 episodes", then "1 in library" and "1 downloading"; nothing
+     * more when every episode is there.
      */
     fun seasonInfo(episodes: Int, inLibrary: Int, downloading: Int): List<Pair<String, Boolean>> {
         val parts = arrayListOf("$episodes episode${if (episodes == 1) "" else "s"}" to true)
-        if (episodes > 0 && inLibrary >= episodes) parts += "All in your library" to false
-        else {
+        if (episodes == 0 || inLibrary < episodes) {
             if (inLibrary > 0) parts += "$inLibrary in library" to false
             if (downloading > 0) parts += "$downloading downloading" to false
         }

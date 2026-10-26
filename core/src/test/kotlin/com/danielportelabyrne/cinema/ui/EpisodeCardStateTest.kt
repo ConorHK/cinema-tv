@@ -107,7 +107,7 @@ class EpisodeCardStateTest {
     }
 
     @Test fun season_bar_counts() {
-        assertEquals(listOf("8 episodes" to true, "All in your library" to false), EpisodeCards.seasonInfo(8, 8, 0))
+        assertEquals(listOf("8 episodes" to true), EpisodeCards.seasonInfo(8, 8, 0))
         assertEquals(listOf("10 episodes" to true, "1 in library" to false, "1 downloading" to false), EpisodeCards.seasonInfo(10, 1, 1))
         assertEquals(listOf("1 episode" to true), EpisodeCards.seasonInfo(1, 0, 0))
     }
