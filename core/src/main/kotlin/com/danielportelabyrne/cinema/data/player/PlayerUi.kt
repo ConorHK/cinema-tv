@@ -3,7 +3,8 @@ package com.danielportelabyrne.cinema.data.player
 /**
  * What the player's chrome shows, as a small state machine driven by the remote. Hidden: just the picture.
  * Controls (`31`): transport, wavy scrubber and chips. Scrubbing (`32`): a frame preview moving with left/right,
- * committed with OK, abandoned with Back. Paused (`33`): the rich information screen.
+ * committed with OK, abandoned with Back. Paused (`33`): the rich information screen, shown after
+ * [PAUSED_IDLE_MS] paused with no key pressed. Pausing shows the controls.
  */
 sealed class PlayerUi {
     object Hidden : PlayerUi()
@@ -30,16 +31,16 @@ sealed class PlayerUi {
      */
     fun onKey(key: Key, repeat: Int, positionMs: Long, durationMs: Long, playing: Boolean, onScrubber: Boolean): Step {
         fun scrub(from: Long, dir: Int, back: PlayerUi) = Step(Scrubbing((from + dir * scrubStep(repeat)).coerceIn(0, durationMs.coerceAtLeast(0)), back))
-        fun toggle(here: PlayerUi) = if (playing) Step(Paused, Action.Pause) else Step(if (here == Paused) Hidden else here, Action.Play)
+        fun toggle(here: PlayerUi) = if (playing) Step(if (here == Hidden) Controls else here, Action.Pause) else Step(if (here == Paused) Hidden else here, Action.Play)
         return when (this) {
             Hidden -> when (key) {
-                Key.OK, Key.UP, Key.DOWN -> Step(Controls)
+                Key.UP, Key.DOWN -> Step(Controls)
                 Key.LEFT -> if (durationMs > 0) scrub(positionMs, -1, Hidden) else Step(Controls)
                 Key.RIGHT -> if (durationMs > 0) scrub(positionMs, 1, Hidden) else Step(Controls)
                 Key.BACK -> Step(Hidden, consumed = false)
-                Key.PLAY_PAUSE -> toggle(Hidden)
+                Key.OK, Key.PLAY_PAUSE -> toggle(Hidden)
                 Key.PLAY -> Step(Hidden, Action.Play)
-                Key.PAUSE -> Step(Paused, Action.Pause)
+                Key.PAUSE -> Step(Controls, Action.Pause)
             }
             Controls -> when (key) {
                 Key.LEFT -> if (onScrubber && durationMs > 0) scrub(positionMs, -1, Controls) else Step(Controls, consumed = false)
@@ -48,7 +49,7 @@ sealed class PlayerUi {
                 Key.BACK -> Step(Hidden)
                 Key.PLAY_PAUSE -> toggle(Controls)
                 Key.PLAY -> Step(Controls, Action.Play)
-                Key.PAUSE -> Step(Paused, Action.Pause)
+                Key.PAUSE -> Step(Controls, Action.Pause)
             }
             is Scrubbing -> when (key) {
                 Key.LEFT -> scrub(targetMs, -1, returnTo)
@@ -69,5 +70,7 @@ sealed class PlayerUi {
     companion object {
         /** 10 s a press; held, 30 s and then 60 s a step. */
         fun scrubStep(repeat: Int): Long = when { repeat < 5 -> 10_000L; repeat < 15 -> 30_000L; else -> 60_000L }
+
+        const val PAUSED_IDLE_MS = 30_000L
     }
 }

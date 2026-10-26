@@ -173,7 +173,7 @@ class PlayerChrome(context: Context) : FrameLayout(context) {
         // The disc is 112 px, but its five rings and focus glow reach well past it, so its view is sized to hold them
         // (otherwise the controls layer clips the rings); the extra is taken back out of the gaps either side.
         val ringRoom = p((PauseDisc.BOX - 112) / 2)
-        transport.addView(pauseButton.apply { setOnClickListener { if (isPlaying()) { onPause(); setState(PlayerUi.Paused) } else { onPlay(); nudge() } } },
+        transport.addView(pauseButton.apply { setOnClickListener { if (isPlaying()) onPause() else onPlay(); nudge() } },
             LinearLayout.LayoutParams(p(PauseDisc.BOX), p(PauseDisc.BOX)).apply { marginStart = gap - p(16) - ringRoom })
         transport.addView(seekButton(R.drawable.ic_cin_f10, 10_000), LinearLayout.LayoutParams(p(96), p(96)).apply { marginStart = gap - p(16) - ringRoom })
         nextButton = roundButton(R.drawable.ic_cin_next, 72, 44) { onNext?.invoke(); nudge() }
@@ -299,8 +299,11 @@ class PlayerChrome(context: Context) : FrameLayout(context) {
         val before = state
         state = next
         val showControls = next == PlayerUi.Controls || next is PlayerUi.Scrubbing
+        controls.animate().cancel(); paused.animate().cancel()
+        controls.alpha = 1f; paused.alpha = 1f; paused.translationY = 0f
         controls.visibility = if (showControls) VISIBLE else GONE
         paused.visibility = if (next == PlayerUi.Paused) VISIBLE else GONE
+        if (next == PlayerUi.Paused && before != PlayerUi.Paused) fadeToPaused(fromControls = before == PlayerUi.Controls)
         if (next != PlayerUi.Paused) { ui.removeCallbacks(glassAfterPause); glass.stop(); pausedScrim.alpha = 1f }
         val scrubbing = next is PlayerUi.Scrubbing
         transport.visibility = if (scrubbing) INVISIBLE else VISIBLE
@@ -318,6 +321,14 @@ class PlayerChrome(context: Context) : FrameLayout(context) {
         }
         nudge()
         tick()
+    }
+
+    private fun fadeToPaused(fromControls: Boolean) {
+        paused.alpha = 0f; paused.translationY = p(40).toFloat()
+        paused.animate().alpha(1f).translationY(0f).setDuration(PAUSED_FADE_MS).setInterpolator(android.view.animation.DecelerateInterpolator(2f)).start()
+        if (!fromControls) return
+        controls.visibility = VISIBLE
+        controls.animate().alpha(0f).setDuration(PAUSED_FADE_MS / 2).withEndAction { controls.alpha = 1f; if (state == PlayerUi.Paused) controls.visibility = GONE }.start()
     }
 
     private fun enterPaused() {
@@ -388,10 +399,18 @@ class PlayerChrome(context: Context) : FrameLayout(context) {
         override fun run() { if (isAttachedToWindow && state != PlayerUi.Hidden) { tick(); ui.postDelayed(this, if (state == PlayerUi.Paused) 1000L else 250L) } }
     }
 
+    private val pausedIdle = Runnable {
+        if (isAttachedToWindow && !isPlaying() && (state == PlayerUi.Hidden || state == PlayerUi.Controls)) setState(PlayerUi.Paused)
+    }
+
+    /** Play or pause began; restarts the idle clock. */
+    fun playingChanged() = nudge()
+
     /** Restarts the auto-hide clock and the ticker. */
     private fun nudge() {
         lastKeyAt = android.os.SystemClock.uptimeMillis()
         ui.removeCallbacks(ticker); if (state != PlayerUi.Hidden) ui.post(ticker)
+        ui.removeCallbacks(pausedIdle); if (!isPlaying()) ui.postDelayed(pausedIdle, PlayerUi.PAUSED_IDLE_MS)
     }
 
     private fun tick() {
@@ -729,6 +748,8 @@ class PlayerChrome(context: Context) : FrameLayout(context) {
     companion object {
         /** How long a pause lasts before the picture starts turning to glass. */
         const val GLASS_AFTER_MS = 5_000L
+
+        const val PAUSED_FADE_MS = 700L
 
         /** A soft, cheap blur for the paused background: shrink hard, box-blur three times, let the view scale it back up. */
         fun blur(src: Bitmap): Bitmap {

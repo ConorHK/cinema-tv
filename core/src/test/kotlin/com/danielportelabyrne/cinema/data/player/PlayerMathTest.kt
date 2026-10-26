@@ -119,8 +119,8 @@ class StreamStatsTest {
 }
 
 class PlayerUiStateTest {
-    @Test fun okShowsControlsAndBackHidesThenLeaves() {
-        assertEquals(PlayerUi.Controls, PlayerUi.Hidden.onKey(PlayerUi.Key.OK, 0, 0, 1000, true, false).state)
+    @Test fun downShowsControlsAndBackHidesThenLeaves() {
+        assertEquals(PlayerUi.Controls, PlayerUi.Hidden.onKey(PlayerUi.Key.DOWN, 0, 0, 1000, true, false).state)
         assertEquals(PlayerUi.Hidden, PlayerUi.Controls.onKey(PlayerUi.Key.BACK, 0, 0, 1000, true, false).state)
         assertEquals(false, PlayerUi.Hidden.onKey(PlayerUi.Key.BACK, 0, 0, 1000, true, false).consumed)
     }
@@ -145,8 +145,14 @@ class PlayerUiStateTest {
         assertTrue(PlayerUi.Controls.onKey(PlayerUi.Key.LEFT, 0, 500, 1000, true, onScrubber = true).state is PlayerUi.Scrubbing)
     }
 
-    @Test fun playPausePausesIntoTheInfoScreenAndResumesOut() {
-        assertEquals(PlayerUi.Step(PlayerUi.Paused, PlayerUi.Action.Pause), PlayerUi.Hidden.onKey(PlayerUi.Key.PLAY_PAUSE, 0, 0, 1000, true, false))
+    @Test fun okPausesIntoTheControlsAndResumes() {
+        assertEquals(PlayerUi.Step(PlayerUi.Controls, PlayerUi.Action.Pause), PlayerUi.Hidden.onKey(PlayerUi.Key.OK, 0, 0, 1000, true, false))
+        assertEquals(PlayerUi.Step(PlayerUi.Hidden, PlayerUi.Action.Play), PlayerUi.Hidden.onKey(PlayerUi.Key.OK, 0, 0, 1000, false, false))
+        assertEquals(PlayerUi.Step(PlayerUi.Controls, PlayerUi.Action.Pause), PlayerUi.Controls.onKey(PlayerUi.Key.PLAY_PAUSE, 0, 0, 1000, true, false))
+    }
+
+    @Test fun playPausePausesIntoTheControlsAndResumesOutOfTheInfoScreen() {
+        assertEquals(PlayerUi.Step(PlayerUi.Controls, PlayerUi.Action.Pause), PlayerUi.Hidden.onKey(PlayerUi.Key.PLAY_PAUSE, 0, 0, 1000, true, false))
         assertEquals(PlayerUi.Step(PlayerUi.Hidden, PlayerUi.Action.Play), PlayerUi.Paused.onKey(PlayerUi.Key.PLAY_PAUSE, 0, 0, 1000, false, false))
         assertEquals(PlayerUi.Controls, PlayerUi.Paused.onKey(PlayerUi.Key.BACK, 0, 0, 1000, false, false).state)
     }

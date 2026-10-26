@@ -626,7 +626,7 @@ class PlayerActivity : AppCompatActivity() {
             }
         }
 
-        override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) = keepAwake()
+        override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) { keepAwake(); chrome?.playingChanged() }
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             if (started && !ended) {
