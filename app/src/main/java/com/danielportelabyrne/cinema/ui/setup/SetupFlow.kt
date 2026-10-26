@@ -21,6 +21,10 @@ import com.danielportelabyrne.cinema.data.jellyfin.JellyfinClient
 import com.danielportelabyrne.cinema.data.jellyfin.JellyfinDiscovery
 import com.danielportelabyrne.cinema.data.letterboxd.LetterboxdRepository
 import com.danielportelabyrne.cinema.data.movies.ArrSetup
+import com.danielportelabyrne.cinema.data.music.SignIn
+import com.danielportelabyrne.cinema.data.music.SubsonicApi
+import com.danielportelabyrne.cinema.data.music.SubsonicClient
+import com.danielportelabyrne.cinema.data.music.SubsonicConfig
 import com.danielportelabyrne.cinema.data.movies.Catalog
 import com.danielportelabyrne.cinema.data.movies.QueueClient
 import com.danielportelabyrne.cinema.data.movies.SeerrClient
@@ -100,7 +104,7 @@ class SetupFlow(
         settingsMode = name != "welcome"; changed = false; afterStep = null
         when (name) {
             "welcome" -> welcome(); "jellyfin" -> jellyfinServer(); "signin" -> jellyfinSignIn(); "seerr" -> seerrStep()
-            "arr" -> arrStep(); "client" -> clientStep(); "region" -> regionStep(); "advanced" -> advancedStep(); "order" -> libraryOrderStep(); "appearance" -> appearanceStep()
+            "arr" -> arrStep(); "client" -> clientStep(); "region" -> regionStep(); "advanced" -> advancedStep(); "order" -> libraryOrderStep(); "appearance" -> appearanceStep(); "music" -> musicStep()
             else -> overview()
         }
     }
@@ -334,6 +338,39 @@ class SetupFlow(
         p.secondary("Cancel") { overview() }
     }
 
+    private fun musicStep() {
+        val p = page("MUSIC", "Music server", "A Subsonic server (Navidrome, Gonic, Airsonic) adds Music to the menu. Leave this off if you have none.")
+        backTo = ::overview
+        val current = settings.subsonic
+        val address = p.field("Music server address", current?.baseUrl)
+        val user = p.field("Username", current?.username)
+        val password = p.field("Password", null, password = true)
+        val key = p.field("API key (instead of a password)", null, password = true)
+        p.note("Leave the password blank to keep the saved one. Your password never leaves this TV.")
+        val token = pageToken
+        p.primary("Connect", R.drawable.ic_cin_check) {
+            val a = address.text.toString().trim(); val u = user.text.toString().trim()
+            val pw = password.text.toString().ifEmpty { if (key.text.isEmpty()) current?.password.orEmpty() else "" }
+            val k = key.text.toString().ifEmpty { if (password.text.isEmpty()) current?.apiKey.orEmpty() else "" }
+            if (a.isEmpty()) { p.status("Enter the music server's address."); return@primary }
+            if (k.isEmpty() && (u.isEmpty() || pw.isEmpty())) { p.status("Enter a username and password, or an API key."); return@primary }
+            val config = SubsonicConfig(SubsonicApi.normalize(a), u, pw, k)
+            p.busy("Connecting…")
+            bg({ SubsonicClient(config).signIn() }) { result ->
+                if (token != pageToken) return@bg
+                when (result) {
+                    SignIn.OK -> { settings.subsonic = config; changed = true; overview() }
+                    SignIn.WRONG_CREDENTIALS -> p.done("The server turned down that sign-in.")
+                    SignIn.NEEDS_API_KEY -> p.done("This server needs an API key. Make one in its settings.")
+                    SignIn.NOT_SUBSONIC -> p.done("That address is not a Subsonic server.")
+                    else -> p.done("Couldn't reach $a. Check the address.")
+                }
+            }
+        }
+        if (current != null) p.secondary("Turn off Music") { settings.subsonic = null; changed = true; overview() }
+        p.secondary("Cancel") { overview() }
+    }
+
     private fun libraryOrderStep() {
         val p = page("SETTINGS", "Library order", "How My library lists your films and series.")
         backTo = ::overview
@@ -381,6 +418,10 @@ class SetupFlow(
         p.row("Library order", settings.libraryOrder.label).button("Change") { libraryOrderStep() }
 
         p.row("Appearance", "How Cinema looks on this TV").button("Change") { appearanceStep() }
+
+        val music = settings.subsonic
+        p.row("Music", music?.let { "${it.baseUrl}" + if (it.username.isNotBlank()) " · ${it.username}" else "" } ?: "Off")
+            .button(if (music != null) "Change" else "Set up") { musicStep() }
 
         val following = LetterboxdRepository.followingCount(activity)
         p.row("Letterboxd", if (following == 0) "Not following anyone. Follow people from the Letterboxd page." else "Following $following · manage them from the Letterboxd page")

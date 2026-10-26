@@ -1,5 +1,6 @@
 package com.danielportelabyrne.cinema.data.settings
 
+import com.danielportelabyrne.cinema.data.music.SubsonicConfig
 import com.danielportelabyrne.cinema.platform.Platform
 import com.danielportelabyrne.cinema.platform.SecretStore
 import java.util.Locale
@@ -62,6 +63,22 @@ class CinemaSettings(platform: Platform) {
         prefs.edit().putString("manual_${arr.name}", value?.baseUrl?.let { cleanUrl(it) }).apply()
         secrets.put("manual_${arr.name}_key", value?.apiKey)
     }
+
+    /** Optional: a Subsonic music server. Null hides Music. */
+    var subsonic: SubsonicConfig?
+        get() {
+            val url = prefs.getString("subsonic_url", null)?.takeIf { it.isNotBlank() } ?: return null
+            val user = prefs.getString("subsonic_user", null).orEmpty()
+            val password = secrets.get("subsonic_password").orEmpty()
+            val key = secrets.get("subsonic_key").orEmpty()
+            if (password.isEmpty() && key.isEmpty()) return null
+            return SubsonicConfig(url, user, password, key)
+        }
+        set(v) {
+            prefs.edit().putString("subsonic_url", v?.baseUrl?.let { cleanUrl(it) }).putString("subsonic_user", v?.username).apply()
+            secrets.put("subsonic_password", v?.password?.takeIf { it.isNotEmpty() })
+            secrets.put("subsonic_key", v?.apiKey?.takeIf { it.isNotEmpty() })
+        }
 
     /** Download-client passwords, per client address. Only used when Sonarr/Radarr hide theirs. */
     fun clientPassword(baseUrl: String): String? = secrets.get("client_pw_$baseUrl")
