@@ -36,6 +36,7 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import com.danielportelabyrne.cinema.data.music.SeekKeys
 import com.danielportelabyrne.cinema.data.music.MusicTrack
 import com.danielportelabyrne.cinema.data.music.SubsonicClient
+import com.danielportelabyrne.cinema.R
 import com.danielportelabyrne.cinema.design.Cinema
 import com.danielportelabyrne.cinema.design.cinema.WaveScrubberView
 import com.danielportelabyrne.cinema.ui.RemoteImages
@@ -71,6 +72,11 @@ class MusicPlayerActivity : Activity() {
     private lateinit var scrubber: WaveScrubberView
     private lateinit var left: LinearLayout
     private lateinit var lyricsView: LyricsView
+    private lateinit var lyricsColumn: LinearLayout
+    private lateinit var status: LinearLayout
+    private lateinit var statusIcon: ImageView
+    private lateinit var statusText: TextView
+    private var statusShown = ""
     private var lyricsShown: Boolean? = null
     private lateinit var elapsed: TextView
     private lateinit var remaining: TextView
@@ -142,6 +148,12 @@ class MusicPlayerActivity : Activity() {
         }
         left = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; clipChildren = false }
         lyricsView = LyricsView(this)
+        lyricsColumn = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        status = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        statusIcon = Cinema.icon(this, R.drawable.ic_cin_play, white(0.6f))
+        statusText = Cinema.text(this, "", 19, white(0.6f), weight = 700, tracking = 0.18f, caps = true)
+        status.addView(statusIcon, LinearLayout.LayoutParams(px(22), px(22)).apply { marginEnd = px(12) })
+        status.addView(statusText)
 
         words = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; clipChildren = false }
         title = Cinema.text(this, "", 54, white(0.96f), weight = 700).apply { maxLines = 1; ellipsize = TextUtils.TruncateAt.END; gravity = Gravity.CENTER_HORIZONTAL }
@@ -174,10 +186,19 @@ class MusicPlayerActivity : Activity() {
         row.removeAllViews()
         if (left.childCount == 0) {
             left.addView(art, LinearLayout.LayoutParams(px(COVER), px(COVER)).apply { gravity = Gravity.CENTER_HORIZONTAL })
-            left.addView(words, LinearLayout.LayoutParams(px(COVER), -2).apply { topMargin = px(36) })
+            left.addView(words, LinearLayout.LayoutParams(px(COVER), -2).apply { topMargin = px(28) })
         }
         row.addView(left, LinearLayout.LayoutParams(-2, -2))
-        if (withLyrics) row.addView(lyricsView, LinearLayout.LayoutParams(px(LYRICS_WIDTH), px(LYRICS_HEIGHT)).apply { marginStart = px(150) })
+        // Playing or paused sits over the lyrics when they show, else centred over the title.
+        (status.parent as? LinearLayout)?.removeView(status)
+        lyricsColumn.removeAllViews()
+        if (withLyrics) {
+            lyricsColumn.addView(status, LinearLayout.LayoutParams(-2, -2).apply { bottomMargin = px(18) })
+            lyricsColumn.addView(lyricsView, LinearLayout.LayoutParams(-1, px(LYRICS_HEIGHT - 50)))
+            row.addView(lyricsColumn, LinearLayout.LayoutParams(px(LYRICS_WIDTH), -2).apply { marginStart = px(150) })
+        } else {
+            words.addView(status, 0, LinearLayout.LayoutParams(-2, -2).apply { gravity = Gravity.CENTER_HORIZONTAL; bottomMargin = px(14) })
+        }
         row.alpha = 0f
         row.animate().alpha(1f).setDuration(400).start()
     }
@@ -224,6 +245,7 @@ class MusicPlayerActivity : Activity() {
             val clock = now - opened
             backdrop.advance(clock)
             act(seekKeys.due(SystemClock.uptimeMillis()))
+            showStatus()
             updateProgress()
             Choreographer.getInstance().postFrameCallback(this)
         }
@@ -241,6 +263,20 @@ class MusicPlayerActivity : Activity() {
             scrobbled = shownIndex
             tracks.getOrNull(shownIndex)?.let { t -> worker.execute { client.scrobble(t.id, submission = true) } }
         }
+    }
+
+    private fun showStatus() {
+        val (label, playing) = when {
+            scanDirection > 0 -> "Scanning forward" to true
+            scanDirection < 0 -> "Scanning back" to true
+            player.playbackState == Player.STATE_BUFFERING && player.playWhenReady -> "Loading" to true
+            player.isPlaying -> "Playing" to true
+            else -> "Paused" to false
+        }
+        if (label == statusShown) return
+        statusShown = label
+        statusText.text = label
+        statusIcon.setImageResource(if (playing) R.drawable.ic_cin_play else R.drawable.ic_cin_pause)
     }
 
     private fun length(): Long =
