@@ -53,6 +53,15 @@ data class JellyfinItem(
     val sourceId: String get() = mediaSourceId ?: id
 
     val isMovie: Boolean get() = type == "Movie"
+
+    /** The key the player keeps this title's place under: an episode by its id, a film by its IMDb id when it has one. */
+    val resumeKey: String get() = if (isEpisode) "jf:$id" else imdbId ?: "jf:$id"
+
+    /** What a card calls it: an episode's series, else the film's own name. */
+    val displayTitle: String get() = if (isEpisode) seriesName ?: name else name
+
+    /** "S1 E3 · Pilot" for an episode, the year for a film. */
+    val displaySubtitle: String? get() = if (isEpisode) listOfNotNull(episodeLabel(), name.takeIf { it.isNotBlank() }).joinToString(" · ").ifBlank { null } else year?.toString()
 }
 
 /** One scheduled programme on a live channel. */
@@ -100,6 +109,11 @@ object JellyfinApi {
     /** Films and episodes, last played first. Never-played items sort last. */
     fun recentlyPlayedUrl(base: String, userId: String): String =
         "$base/Items?userId=${enc(userId)}&Recursive=true&IncludeItemTypes=Movie,Episode&SortBy=DatePlayed&SortOrder=Descending&Limit=300"
+
+    /** Films and episodes part-watched, most recently watched first. The server leaves out anything already finished. */
+    fun resumeUrl(base: String, userId: String): String =
+        "$base/Users/${enc(userId)}/Items/Resume?Limit=12&Recursive=true&MediaTypes=Video" +
+            "&Fields=RunTimeTicks,ProviderIds,Overview,Genres,DateCreated,DateLastMediaAdded"
 
     /** Gives each film and series its latest play, an episode counting for its series. */
     fun withPlays(library: List<JellyfinItem>, played: List<JellyfinItem>): List<JellyfinItem> {

@@ -55,10 +55,32 @@ check() {   # $1 = label
   tv exec-out screencap -p > "$OUT/$1.png"
 }
 
-tv shell am start -n "$ACTIVITY" >/dev/null; check launch
+# Single-quote each value for the device shell, so a generated password can't break the command.
+sq() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
+if [ -n "${JELLYFIN_TEST_URL:-}" ] && [ -n "${JELLYFIN_TEST_USERNAME:-}" ] && [ -n "${JELLYFIN_TEST_PASSWORD:-}" ]; then
+  # Signs the CI copy in to the test account (a debug-only path, see CinemaActivity.debugTestAccount). The Home
+  # screenshot then shows the Continue watching row for that account.
+  tv shell "am start -n $ACTIVITY --es debug_jellyfin_server $(sq "$JELLYFIN_TEST_URL") --es debug_jellyfin_username $(sq "$JELLYFIN_TEST_USERNAME") --es debug_jellyfin_password $(sq "$JELLYFIN_TEST_PASSWORD")" >/dev/null
+  sleep 15; check signed-in
+else
+  echo "::notice::No test account secrets; skipping the signed-in check."
+  tv shell am start -n "$ACTIVITY" >/dev/null; check launch
+fi
 for step in welcome jellyfin signin seerr arr client region advanced settings; do
   tv shell am start -n "$ACTIVITY" --es debug_setup_step "$step" >/dev/null; check "setup-$step"
 done
+
+# The launcher's Continue watching row reads this provider. From the shell it is refused, because the permission is the
+# app's own, and that still shows the provider is registered and enforcing it. Not registered, or crashing, is a fault.
+# (Rows themselves need a signed-in copy; the CI build has no sign-in, so this checks the wiring, not the list.)
+rows=$(tv shell content query --uri "content://$PKG.continuewatching/items" 2>&1 | tr -d '\r' || true)
+echo "$rows" > "$OUT/continue-watching.txt"
+# Android also prints "Error while accessing provider" with the denial, so only a missing provider or an error other
+# than the denial counts as a fault.
+if echo "$rows" | grep -q "Could not find provider" || { echo "$rows" | grep -q "Error while accessing provider" && ! echo "$rows" | grep -q "Permission Denial"; }; then
+  echo "::error::The Continue watching provider is not answering on the Chromecast; see continue-watching.txt"
+  fail=1
+fi
 
 tv logcat -d > "$OUT/logcat.txt" || true
 if tv logcat -d -b crash | grep -q "$PKG"; then

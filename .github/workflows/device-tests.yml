@@ -47,6 +47,10 @@ jobs:
           run-id: ${{ env.RUN_ID }}
           github-token: ${{ github.token }}
       - name: Install on the Chromecast and open each setup page
+        env:
+          JELLYFIN_TEST_URL: ${{ secrets.JELLYFIN_TEST_URL }}
+          JELLYFIN_TEST_USERNAME: ${{ secrets.JELLYFIN_TEST_USERNAME }}
+          JELLYFIN_TEST_PASSWORD: ${{ secrets.JELLYFIN_TEST_PASSWORD }}
         run: scripts/ci/chromecast-smoke.sh artifacts/app-debug.apk out/chromecast
       - name: Screenshots and logs
         if: always()

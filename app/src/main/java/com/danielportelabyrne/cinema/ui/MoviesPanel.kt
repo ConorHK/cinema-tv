@@ -32,6 +32,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import com.danielportelabyrne.cinema.R
+import com.danielportelabyrne.cinema.data.ContinueWatching
 import com.danielportelabyrne.cinema.data.jellyfin.JellyfinApi
 import com.danielportelabyrne.cinema.data.jellyfin.JellyfinClient
 import com.danielportelabyrne.cinema.data.jellyfin.JellyfinItem
@@ -304,7 +305,7 @@ class MoviesPanel(
         ui.postDelayed({
             worker.execute {
                 val items = jellyfin.library(force = true)
-                ui.post { if (isVisible) refreshWatchState(gen, items) }
+                ui.post { if (isVisible) { refreshWatchState(gen, items); continueRow?.let { fillContinue(it, gen) } } }
             }
         }, RETURN_REFRESH_DELAY_MS)
     }
@@ -744,7 +745,7 @@ class MoviesPanel(
         // Rows never wait for the library: they draw from the catalogue at once, and this one fetch badges them when it lands.
         jellyfin.takeIf { it.isConnected }?.let { j -> worker.execute { j.library(); ui.post { rebadge(gen) } } }
         when (val d = current) {
-            Dest.Home -> { buildHero(); picksRow(gen); libraryRow(gen, "My library", 18); serviceTiles(); genreTiles(); shelves(Catalog.homePage(), gen) }
+            Dest.Home -> { buildHero(); continueRow(gen); picksRow(gen); libraryRow(gen, "My library", 18); serviceTiles(); genreTiles(); shelves(Catalog.homePage(), gen) }
             Dest.Films -> { buildHero(); shelves(Catalog.filmsPage(), gen) }
             Dest.Series -> { buildHero(); shelves(Catalog.seriesPage(), gen) }
             Dest.Docs -> { buildHero(); shelves(Catalog.documentariesPage(), gen) }
@@ -1620,6 +1621,67 @@ class MoviesPanel(
      * why. The last picks show at once; fresh ones replace them when they are due. The top three also become the
      * featured titles, in place of what is trending (which stays until there are picks).
      */
+    // --- Continue watching ------------------------------------------------------------------------
+
+    private val continueStore by lazy { ContinueWatching(activity) }
+    private var continueRow: Row? = null
+
+    /** A part-watched title for the Continue row: a stream this app saved, or one of the owner's Jellyfin films or episodes. */
+    private class Resumable(
+        val title: String, val subtitle: String?, val positionMs: Long, val durationMs: Long, val lastMs: Long,
+        val open: () -> Unit, val still: Bitmap?, val stillUrl: String?
+    )
+
+    /** The row under the hero: what is part-way through, streams and Jellyfin together, most recent first. Hidden when empty. */
+    private fun continueRow(gen: Int) {
+        val row = row("Continue watching", null)
+        row.heading?.visibility = View.GONE; row.scroller.visibility = View.GONE
+        continueRow = row
+        fillContinue(row, gen)
+    }
+
+    private fun fillContinue(row: Row, gen: Int) {
+        worker.execute {
+            // Only streams with a saved payload can be reopened.
+            val streams = continueStore.load(12).mapNotNull { s ->
+                val payload = s.payload ?: return@mapNotNull null
+                Resumable(s.title, s.subtitle, s.positionMs, s.durationMs, s.lastEngagedMs,
+                    open = { playbackStarted = true; if (!PlayerActivity.resume(activity, payload)) Toast.makeText(activity, "Couldn't reopen ${s.title}", Toast.LENGTH_LONG).show() },
+                    still = s.imageUri?.let { continueStore.image(it) }, stillUrl = null)
+            }
+            val library = if (jellyfin.isConnected) jellyfin.continueWatching() else emptyList()
+            val films = library.map { item ->
+                Resumable(item.displayTitle, item.displaySubtitle, item.resumeMs, (item.runtimeMin ?: 0) * 60_000L, item.playedMs ?: 0L,
+                    open = { playbackStarted = true; JellyfinPlayback.play(activity, jellyfin, item, listOfNotNull(item.displayTitle, item.episodeLabel()).joinToString(" · "), item.resumeKey) },
+                    still = null, stillUrl = if (item.hasBackdrop) jellyfin.backdropUrl(item.id) else JellyfinApi.episodeImageUrl(JellyfinApi.cleanBase(jellyfin.server), item.id, 640))
+            }
+            val all = (streams + films).sortedByDescending { it.lastMs }.take(12)
+            activity.runOnUiThread {
+                if (gen != generation) return@runOnUiThread
+                row.inner.removeAllViews()
+                if (all.isEmpty()) { row.hide(); return@runOnUiThread }
+                row.heading?.visibility = View.VISIBLE; row.scroller.visibility = View.VISIBLE
+                all.forEachIndexed { i, r -> row.inner.addView(resumeCard(r, gen), cardParams(i)) }
+                row.setCount(all.size)
+                row.scroller.post { row.loadNear() }
+            }
+        }
+    }
+
+    private fun resumeCard(r: Resumable, gen: Int): View {
+        val card = ResumeCard(activity)
+        card.contentDescription = r.title
+        card.title.text = r.title
+        val left = if (r.durationMs > 0 && r.positionMs > 0) ((r.durationMs - r.positionMs) / 60_000).toInt().coerceAtLeast(1) else null
+        card.meta.text = listOfNotNull(r.subtitle, left?.let { if (it >= 60) "${it / 60}h ${it % 60}m left" else "$it min left" }).joinToString(" · ")
+        card.setProgress(if (r.durationMs > 0) r.positionMs.toFloat() / r.durationMs else 0f)
+        r.still?.let { card.setStill(it) }
+        r.stillUrl?.let { url -> images.load(url, jellyfin.playbackHeaders(), maxWidth = 640, tag = pageTag) { b -> if (gen == generation) card.setStill(b) } }
+        card.onFocus = { lit -> if (lit) reveal(card) }
+        card.setOnClickListener { r.open() }
+        return card
+    }
+
     private fun picksRow(gen: Int) {
         val row = row("Picked for you", null)
         row.inner.minimumHeight = Cinema.px(activity, 488)
