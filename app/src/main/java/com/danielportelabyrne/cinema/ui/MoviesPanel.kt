@@ -919,8 +919,8 @@ class MoviesPanel(
         com.danielportelabyrne.cinema.ui.music.MusicPlayerActivity.launch(activity, tracks, start)
     }
 
-    /** Focus [view] when the page has nothing focused (the card that opened it is gone). */
-    private fun musicFocus(view: View) { if (!detailOpen && overlay.findFocus() == null) requestFocusRobust(overlay as ViewGroup, view) }
+    /** Focus [view] unless the viewer is in the rail; the card that opened the page is gone. */
+    private fun musicFocus(view: View) { if (!detailOpen && overlay.findFocus()?.let { isWithin(it, top) } != true) requestFocusRobust(overlay as ViewGroup, view) }
 
     private fun musicHeader(eyebrow: List<String>, title: String): LinearLayout =
         LinearLayout(activity).apply {

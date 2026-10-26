@@ -8,9 +8,9 @@ import kotlin.math.sin
  * the text and progress dim when nobody is using the remote. Pure, so the timings can be tested.
  */
 object BurnIn {
-    const val IDLE_MS = 10_000L
-    const val FADE_MS = 2_000L
-    const val DIM = 0.3f
+    const val IDLE_MS = 30_000L
+    const val FADE_MS = 4_000L
+    const val DIM = 0.6f
     private const val PERIOD_X_MS = 7 * 60_000.0
     private const val PERIOD_Y_MS = 11 * 60_000.0
 

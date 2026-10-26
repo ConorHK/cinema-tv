@@ -14,10 +14,10 @@ class BurnInTest {
         assertTrue(abs(step.first) < 0.5f)   // slow enough not to be seen
     }
 
-    @Test fun chrome_dims_after_ten_quiet_seconds() {
+    @Test fun chrome_dims_gently_after_thirty_quiet_seconds() {
         assertEquals(1f, BurnIn.chromeAlpha(0), 0f)
-        assertEquals(1f, BurnIn.chromeAlpha(10_000), 0f)
-        assertEquals(0.65f, BurnIn.chromeAlpha(11_000), 0.001f)
+        assertEquals(1f, BurnIn.chromeAlpha(30_000), 0f)
+        assertEquals(0.8f, BurnIn.chromeAlpha(32_000), 0.001f)
         assertEquals(BurnIn.DIM, BurnIn.chromeAlpha(60_000), 0f)
     }
 

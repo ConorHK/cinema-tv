@@ -12,6 +12,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.text.TextUtils
+import android.view.Choreographer
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.View
@@ -23,6 +24,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.Format
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
@@ -34,8 +36,9 @@ import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.DefaultAudioSink
-import androidx.media3.exoplayer.audio.TeeAudioProcessor
+import androidx.media3.exoplayer.audio.ForwardingAudioSink
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import com.danielportelabyrne.cinema.data.music.AudioHistory
 import com.danielportelabyrne.cinema.data.music.BurnIn
 import com.danielportelabyrne.cinema.data.music.MusicTrack
 import com.danielportelabyrne.cinema.data.music.Spectrum
@@ -63,8 +66,12 @@ class MusicPlayerActivity : Activity() {
     private val images by lazy { RemoteImages.shared(this) }
 
     private val spectrum = Spectrum(BANDS)
-    private val levels = FloatArray(BANDS)
-    private val tap = Tap()
+    private val history = AudioHistory(1 shl 19)
+    private val recent = FloatArray(spectrum.size)
+    /** The sink's playing position and when it was read, in its own media timeline. */
+    @Volatile private var playingUs = Long.MIN_VALUE
+    @Volatile private var playingReadUs = 0L
+    private var lastFrameNs = 0L
 
     private lateinit var stage: LinearLayout
     private lateinit var art: ImageView
@@ -93,9 +100,8 @@ class MusicPlayerActivity : Activity() {
 
         val renderers = object : DefaultRenderersFactory(this) {
             override fun buildAudioSink(context: Context, enableFloatOutput: Boolean, enableAudioTrackPlaybackParams: Boolean): AudioSink =
-                DefaultAudioSink.Builder(context).setEnableFloatOutput(enableFloatOutput)
-                    .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
-                    .setAudioProcessors(arrayOf(TeeAudioProcessor(tap))).build()
+                Capture(DefaultAudioSink.Builder(context).setEnableFloatOutput(enableFloatOutput)
+                    .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams).build())
         }.setEnableDecoderFallback(true).setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
         val base = client.config.baseUrl
         val signing = ResolvingDataSource.Factory(DefaultHttpDataSource.Factory().setAllowCrossProtocolRedirects(true)) { spec ->
@@ -113,7 +119,7 @@ class MusicPlayerActivity : Activity() {
         })
         player.prepare(); player.play()
         showTrack()
-        ui.post(tick)
+        Choreographer.getInstance().postFrameCallback(tick)
     }
 
     private fun item(t: MusicTrack): MediaItem = MediaItem.Builder()
@@ -128,7 +134,7 @@ class MusicPlayerActivity : Activity() {
     private fun buildViews() {
         val root = FrameLayout(this).apply { setBackgroundColor(Cinema.BG); clipChildren = false }
         bars = SpectrumView(this, BANDS)
-        root.addView(bars, FrameLayout.LayoutParams(-1, px(360), Gravity.BOTTOM).apply { setMargins(px(160), 0, px(160), px(70)) })
+        root.addView(bars, FrameLayout.LayoutParams(-1, px(560), Gravity.BOTTOM).apply { setMargins(px(120), 0, px(120), px(40)) })
 
         stage = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         art = ImageView(this).apply {
@@ -174,7 +180,6 @@ class MusicPlayerActivity : Activity() {
         val t = tracks.getOrNull(i) ?: return
         if (i != shownIndex) {
             shownIndex = i; arrange(i)
-            synchronized(spectrum) { spectrum.reset() }
             lastInput = SystemClock.elapsedRealtime()
             art.setImageDrawable(null)
             Music.cover(t.coverArt, 800)?.let { key -> images.load(key, maxWidth = px(500)) { b -> if (shownIndex == i) art.setImageBitmap(b) } }
@@ -188,14 +193,19 @@ class MusicPlayerActivity : Activity() {
 
     // --- The loop -------------------------------------------------------------------------------------
 
-    private val tick = object : Runnable {
-        override fun run() {
+    private val tick = object : Choreographer.FrameCallback {
+        override fun doFrame(frameNs: Long) {
+            if (isDestroyed) return
             val now = SystemClock.elapsedRealtime()
-            synchronized(spectrum) {
-                if (!player.isPlaying) spectrum.decay()
-                System.arraycopy(spectrum.levels, 0, levels, 0, BANDS)
-            }
-            bars.show(levels)
+            val dtMs = if (lastFrameNs == 0L) 16L else ((frameNs - lastFrameNs) / 1_000_000L).coerceIn(1L, 100L)
+            lastFrameNs = frameNs
+            // The sink reports its position every few milliseconds; carry it forward to this frame.
+            val at = playingUs
+            val ahead = if (player.isPlaying) (SystemClock.elapsedRealtimeNanos() / 1000 - playingReadUs).coerceIn(0L, 100_000L) else 0L
+            val rate = history.sampleRate
+            if (player.isPlaying && at != Long.MIN_VALUE && rate > 0 && history.window(at + ahead, recent)) spectrum.update(recent, rate, dtMs)
+            else spectrum.decay(dtMs)
+            bars.show(spectrum.levels, ((now - opened) % SWEEP_MS) / SWEEP_MS.toFloat())
             val (dx, dy) = BurnIn.drift(now - opened, px(DRIFT).toFloat())
             stage.translationX = dx; stage.translationY = dy
             bars.translationX = -dx; bars.translationY = dy
@@ -203,7 +213,7 @@ class MusicPlayerActivity : Activity() {
             words.alpha = chrome
             art.alpha = 0.4f + 0.6f * chrome
             updateProgress()
-            ui.postDelayed(this, FRAME_MS)
+            Choreographer.getInstance().postFrameCallback(this)
         }
     }
 
@@ -263,37 +273,64 @@ class MusicPlayerActivity : Activity() {
     }
 
     override fun onDestroy() {
-        ui.removeCallbacks(tick)
+        Choreographer.getInstance().removeFrameCallback(tick)
         if (::player.isInitialized) player.release()
         worker.shutdown()
         super.onDestroy()
     }
 
-    /** Decoded audio on its way out, mixed to mono for [spectrum]. Runs on the playback thread. */
-    private inner class Tap : TeeAudioProcessor.AudioBufferSink {
+    /**
+     * Copies decoded audio into [history] with the time it will play, and notes what is playing now. Runs on the
+     * playback thread. The renderer hands the same buffer back until the sink takes it all, so each is copied once.
+     */
+    private inner class Capture(sink: AudioSink) : ForwardingAudioSink(sink) {
         private var rate = 0
         private var channels = 0
         private var encoding = C.ENCODING_INVALID
-        private var mono = FloatArray(4096)
+        private var lastPts = Long.MIN_VALUE
+        private var mono = FloatArray(8192)
 
-        override fun flush(sampleRateHz: Int, channelCount: Int, encoding: Int) {
-            rate = sampleRateHz; channels = channelCount; this.encoding = encoding
-            synchronized(spectrum) { spectrum.reset() }
+        override fun configure(inputFormat: Format, specifiedBufferSize: Int, outputChannels: IntArray?) {
+            rate = inputFormat.sampleRate; channels = inputFormat.channelCount; encoding = inputFormat.pcmEncoding
+            super.configure(inputFormat, specifiedBufferSize, outputChannels)
         }
 
-        override fun handleBuffer(buffer: ByteBuffer) {
+        override fun handleBuffer(buffer: ByteBuffer, presentationTimeUs: Long, encodedAccessUnitCount: Int): Boolean {
+            if (presentationTimeUs != lastPts) { lastPts = presentationTimeUs; copy(buffer, presentationTimeUs) }
+            return super.handleBuffer(buffer, presentationTimeUs, encodedAccessUnitCount)
+        }
+
+        override fun getCurrentPositionUs(sourceEnded: Boolean): Long {
+            val p = super.getCurrentPositionUs(sourceEnded)
+            if (p != AudioSink.CURRENT_POSITION_NOT_SET) { playingUs = p; playingReadUs = SystemClock.elapsedRealtimeNanos() / 1000 }
+            return p
+        }
+
+        override fun flush() {
+            history.clear(); lastPts = Long.MIN_VALUE; playingUs = Long.MIN_VALUE
+            super.flush()
+        }
+
+        private fun copy(buffer: ByteBuffer, ptsUs: Long) {
             val ch = channels.takeIf { it > 0 } ?: return
-            val b = buffer.duplicate().order(ByteOrder.nativeOrder())
-            val bytes = when (encoding) { C.ENCODING_PCM_16BIT -> 2; C.ENCODING_PCM_FLOAT -> 4; else -> return }
+            val bytes = when (encoding) {
+                C.ENCODING_PCM_16BIT -> 2; C.ENCODING_PCM_24BIT -> 3; C.ENCODING_PCM_32BIT, C.ENCODING_PCM_FLOAT -> 4; else -> return
+            }
+            val b = buffer.duplicate().order(ByteOrder.LITTLE_ENDIAN)
             val frames = b.remaining() / (bytes * ch)
-            if (frames == 0) return
+            if (frames == 0 || rate <= 0) return
             if (mono.size < frames) mono = FloatArray(frames)
             for (f in 0 until frames) {
                 var sum = 0f
-                for (c in 0 until ch) sum += if (bytes == 2) b.short / 32768f else b.float
+                for (c in 0 until ch) sum += when (encoding) {
+                    C.ENCODING_PCM_16BIT -> b.short / 32768f
+                    C.ENCODING_PCM_24BIT -> ((b.get().toInt() and 0xFF) or ((b.get().toInt() and 0xFF) shl 8) or (b.get().toInt() shl 16)) / 8388608f
+                    C.ENCODING_PCM_32BIT -> b.int / 2147483648f
+                    else -> b.float
+                }
                 mono[f] = sum / ch
             }
-            synchronized(spectrum) { spectrum.feed(mono, frames, rate) }
+            history.add(mono, frames, ptsUs, rate)
         }
     }
 
@@ -313,8 +350,8 @@ class MusicPlayerActivity : Activity() {
 
     companion object {
         private const val TAG = "CinemaMusic"
-        private const val BANDS = 48
-        private const val FRAME_MS = 33L
+        private const val BANDS = 64
+        private const val SWEEP_MS = 5 * 60_000L
         private const val DRIFT = 28
         private const val SEEK_MS = 10_000L
 
