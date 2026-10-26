@@ -1,6 +1,5 @@
 package com.danielportelabyrne.cinema.data.settings
 
-import com.danielportelabyrne.cinema.data.music.MusicVisual
 import com.danielportelabyrne.cinema.data.music.SubsonicConfig
 import com.danielportelabyrne.cinema.platform.Platform
 import com.danielportelabyrne.cinema.platform.SecretStore
@@ -80,10 +79,6 @@ class CinemaSettings(platform: Platform) {
             secrets.put("subsonic_password", v?.password?.takeIf { it.isNotEmpty() })
             secrets.put("subsonic_key", v?.apiKey?.takeIf { it.isNotEmpty() })
         }
-
-    var musicVisual: MusicVisual
-        get() = MusicVisual.of(prefs.getString("music_visual", null))
-        set(v) { prefs.edit().putString("music_visual", v.name).apply() }
 
     /** Download-client passwords, per client address. Only used when Sonarr/Radarr hide theirs. */
     fun clientPassword(baseUrl: String): String? = secrets.get("client_pw_$baseUrl")

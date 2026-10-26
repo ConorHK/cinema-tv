@@ -1,13 +1,12 @@
 package com.danielportelabyrne.cinema.ui.music
 
 import android.app.Activity
-import android.content.Context
 import android.content.Intent
-import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Outline
 import android.graphics.Paint
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -19,13 +18,13 @@ import android.view.KeyEvent
 import android.view.View
 import android.view.ViewOutlineProvider
 import android.view.WindowManager
+import android.view.animation.PathInterpolator
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
-import androidx.media3.common.Format
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
@@ -35,34 +34,21 @@ import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.ResolvingDataSource
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.audio.AudioSink
-import androidx.media3.exoplayer.audio.DefaultAudioSink
-import androidx.media3.exoplayer.audio.ForwardingAudioSink
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
-import com.danielportelabyrne.cinema.data.music.ArtPalette
-import com.danielportelabyrne.cinema.data.music.AudioHistory
-import com.danielportelabyrne.cinema.data.music.Bands
-import com.danielportelabyrne.cinema.data.music.MusicVisual
-import com.danielportelabyrne.cinema.data.music.Springs
-import com.danielportelabyrne.cinema.data.settings.CinemaSettings
-import com.danielportelabyrne.cinema.device.AndroidPlatform
 import com.danielportelabyrne.cinema.data.music.BurnIn
 import com.danielportelabyrne.cinema.data.music.MusicTrack
-import com.danielportelabyrne.cinema.data.music.Spectrum
 import com.danielportelabyrne.cinema.data.music.SubsonicClient
 import com.danielportelabyrne.cinema.design.Cinema
 import com.danielportelabyrne.cinema.ui.RemoteImages
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
 import java.util.concurrent.Executors
 
 /**
- * Full-screen now playing for a queue of tracks from the music server, with the music drawn as arches or as light
- * through glass. Built to sit on an OLED panel for hours: the layout drifts, the arches swap sides each track, the
- * words dim when the remote is idle, and nothing lit holds still. Paused, the screen may sleep. Leaving stops the music.
+ * Full-screen now playing for a queue of tracks from the music server, laid out like Apple Music on a TV: the cover
+ * large on the left, the words and progress on the right, over the cover itself blurred into slowly turning colour.
+ * Built to sit on an OLED panel for hours: the background never stops moving, the layout drifts, and the words dim
+ * when the remote is idle. Paused, the cover sinks back and the screen may sleep. Leaving stops the music.
  *
- * Remote: OK plays or pauses, Left and Right step through the queue, Up and Down change the picture, rewind and fast
- * forward seek, Back leaves.
+ * Remote: OK plays or pauses, Left and Right step through the queue, rewind and fast forward seek, Back leaves.
  */
 @UnstableApi
 class MusicPlayerActivity : Activity() {
@@ -73,39 +59,24 @@ class MusicPlayerActivity : Activity() {
     private val worker = Executors.newSingleThreadExecutor()
     private val images by lazy { RemoteImages.shared(this) }
 
-    private val spectrum = Spectrum(BANDS)
-    private val history = AudioHistory(1 shl 19)
-    private val recent = FloatArray(spectrum.size)
-    /** The sink's playing position and when it was read, in its own media timeline. */
-    @Volatile private var playingUs = Long.MIN_VALUE
-    @Volatile private var playingReadUs = 0L
-    private var lastFrameNs = 0L
-
-    private val groups = FloatArray(ArchesView.COUNT)
-    private val springs = Springs(ArchesView.COUNT)
-    private lateinit var settings: CinemaSettings
-    private var visual = MusicVisual.ARCHES
-
-    private lateinit var root: FrameLayout
-    private lateinit var column: LinearLayout
+    private lateinit var backdrop: ArtBackdrop
+    private lateinit var row: LinearLayout
     private lateinit var art: ImageView
     private lateinit var words: LinearLayout
-    private lateinit var eyebrow: TextView
     private lateinit var title: TextView
-    private lateinit var byline: TextView
+    private lateinit var artist: TextView
+    private lateinit var album: TextView
     private lateinit var progress: Progress
-    private lateinit var times: TextView
-    private lateinit var upNext: TextView
-    private lateinit var label: TextView
-    private var arches: ArchesView? = null
-    private var glass: GlassField? = null
+    private lateinit var elapsed: TextView
+    private lateinit var remaining: TextView
+    private lateinit var nextLabel: TextView
+    private lateinit var next: TextView
 
     private val opened = SystemClock.elapsedRealtime()
     private var lastInput = opened
     private var shownIndex = -1
     private var scrobbled = -1
     private var failures = 0
-    private var frame = 0
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -113,15 +84,10 @@ class MusicPlayerActivity : Activity() {
         val c = Music.client
         if (queue == null || c == null || queue.tracks.isEmpty()) { finish(); return }
         client = c; tracks = queue.tracks
-        settings = CinemaSettings(AndroidPlatform(this))
-        visual = settings.musicVisual
         buildViews()
 
-        val renderers = object : DefaultRenderersFactory(this) {
-            override fun buildAudioSink(context: Context, enableFloatOutput: Boolean, enableAudioTrackPlaybackParams: Boolean): AudioSink =
-                Capture(DefaultAudioSink.Builder(context).setEnableFloatOutput(enableFloatOutput)
-                    .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams).build())
-        }.setEnableDecoderFallback(true).setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
+        val renderers = DefaultRenderersFactory(this).setEnableDecoderFallback(true)
+            .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
         val base = client.config.baseUrl
         val signing = ResolvingDataSource.Factory(DefaultHttpDataSource.Factory().setAllowCrossProtocolRedirects(true)) { spec ->
             val uri = spec.uri.toString()
@@ -132,7 +98,7 @@ class MusicPlayerActivity : Activity() {
         player.setMediaItems(tracks.map { item(it) }, queue.start.coerceIn(0, tracks.lastIndex), 0L)
         player.addListener(object : Player.Listener {
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) { showTrack() }
-            override fun onIsPlayingChanged(isPlaying: Boolean) { keepAwake() }
+            override fun onIsPlayingChanged(isPlaying: Boolean) { keepAwake(); settleArt() }
             override fun onPlaybackStateChanged(state: Int) { if (state == Player.STATE_READY) failures = 0; keepAwake() }
             override fun onPlayerError(error: PlaybackException) { skipBroken(error) }
         })
@@ -150,109 +116,81 @@ class MusicPlayerActivity : Activity() {
 
     private fun px(mock: Int) = Cinema.px(this, mock)
 
+    private fun white(alpha: Float) = Cinema.alpha(0xFFFFFFFF.toInt(), alpha)
+
     private fun buildViews() {
-        root = FrameLayout(this).apply { setBackgroundColor(Cinema.BG); clipChildren = false }
-        column = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; clipChildren = false }
+        val root = FrameLayout(this).apply { setBackgroundColor(Cinema.BG) }
+        backdrop = ArtBackdrop(this)
+        root.addView(backdrop, FrameLayout.LayoutParams(-1, -1))
+
+        row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; clipChildren = false }
         art = ImageView(this).apply {
             scaleType = ImageView.ScaleType.CENTER_CROP
-            setBackgroundColor(Cinema.alpha(Cinema.CREAM, 0.06f))
-            outlineProvider = object : ViewOutlineProvider() { override fun getOutline(v: View, o: Outline) { o.setRoundRect(0, 0, v.width, v.height, Cinema.pxf(context, 20)) } }
+            setBackgroundColor(white(0.08f))
+            outlineProvider = object : ViewOutlineProvider() { override fun getOutline(v: View, o: Outline) { o.setRoundRect(0, 0, v.width, v.height, Cinema.pxf(context, 22)) } }
             clipToOutline = true
+            elevation = Cinema.pxf(context, 60)
+            if (Build.VERSION.SDK_INT >= 28) { outlineSpotShadowColor = 0xFF000000.toInt(); outlineAmbientShadowColor = 0xFF000000.toInt() }
         }
+        row.addView(art, LinearLayout.LayoutParams(px(ART), px(ART)))
+
         words = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        eyebrow = Cinema.text(this, "", 17, Cinema.SAFFRON, weight = 700, tracking = 0.2f, caps = true)
-        title = Cinema.text(this, "", 60, Cinema.CREAM, serif = true, weight = 500).apply { maxLines = 2; ellipsize = TextUtils.TruncateAt.END }
-        byline = Cinema.text(this, "", 28, Cinema.MUTED).apply { maxLines = 1; ellipsize = TextUtils.TruncateAt.END }
+        title = Cinema.text(this, "", 56, white(0.96f), weight = 700).apply { maxLines = 2; ellipsize = TextUtils.TruncateAt.END; setLineSpacing(0f, 1.05f) }
+        artist = Cinema.text(this, "", 36, white(0.72f), weight = 500).apply { maxLines = 1; ellipsize = TextUtils.TruncateAt.END }
+        album = Cinema.text(this, "", 28, white(0.48f)).apply { maxLines = 1; ellipsize = TextUtils.TruncateAt.END }
         progress = Progress(this)
-        times = Cinema.text(this, "", 20, Cinema.DIM)
-        upNext = Cinema.text(this, "", 20, Cinema.DIM).apply { maxLines = 1; ellipsize = TextUtils.TruncateAt.END }
-        words.addView(eyebrow)
-        words.addView(title, LinearLayout.LayoutParams(-1, -2).apply { topMargin = px(18) })
-        words.addView(byline, LinearLayout.LayoutParams(-1, -2).apply { topMargin = px(12) })
-        words.addView(progress, LinearLayout.LayoutParams(-1, px(6)).apply { topMargin = px(40) })
-        words.addView(times, LinearLayout.LayoutParams(-1, -2).apply { topMargin = px(12) })
-        words.addView(upNext, LinearLayout.LayoutParams(-1, -2).apply { topMargin = px(24) })
-        label = Cinema.text(this, "", 17, Cinema.SAFFRON, weight = 700, tracking = 0.24f, caps = true).apply { alpha = 0f }
+        elapsed = Cinema.text(this, "", 22, white(0.55f), weight = 500)
+        remaining = Cinema.text(this, "", 22, white(0.55f), weight = 500).apply { gravity = Gravity.END }
+        val times = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            addView(elapsed, LinearLayout.LayoutParams(0, -2, 1f))
+            addView(remaining, LinearLayout.LayoutParams(0, -2, 1f))
+        }
+        nextLabel = Cinema.text(this, "Up next", 18, white(0.42f), weight = 700, tracking = 0.16f, caps = true)
+        next = Cinema.text(this, "", 26, white(0.66f), weight = 500).apply { maxLines = 1; ellipsize = TextUtils.TruncateAt.END }
+        words.addView(title)
+        words.addView(artist, LinearLayout.LayoutParams(-1, -2).apply { topMargin = px(16) })
+        words.addView(album, LinearLayout.LayoutParams(-1, -2).apply { topMargin = px(8) })
+        words.addView(progress, LinearLayout.LayoutParams(-1, px(8)).apply { topMargin = px(64) })
+        words.addView(times, LinearLayout.LayoutParams(-1, -2).apply { topMargin = px(14) })
+        words.addView(nextLabel, LinearLayout.LayoutParams(-1, -2).apply { topMargin = px(64) })
+        words.addView(next, LinearLayout.LayoutParams(-1, -2).apply { topMargin = px(8) })
+        row.addView(words, LinearLayout.LayoutParams(px(WORDS), -2).apply { marginStart = px(GAP) })
+
+        root.addView(row, FrameLayout.LayoutParams(-2, -2, Gravity.CENTER))
         setContentView(root)
-        useVisual(visual, announce = false)
     }
-
-    /** Puts [v] on screen, with the art and words laid out around it. */
-    private fun useVisual(v: MusicVisual, announce: Boolean) {
-        visual = v
-        root.removeAllViews()
-        glass?.release(); glass = null; arches = null
-        springs.reset()
-        when (v) {
-            MusicVisual.ARCHES -> arches = ArchesView(this).also { it.shift = maxOf(shownIndex, 0) }
-            MusicVisual.GLASS -> glass = GlassField(this).also { g -> lastPalette?.let { g.setPalette(it) } }
-        }
-        (arches ?: glass)?.let { root.addView(it) }
-        root.addView(column)
-        root.addView(label, FrameLayout.LayoutParams(-2, -2, Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin = px(60) })
-        arrange(maxOf(shownIndex, 0))
-        if (announce) {
-            label.text = v.label
-            label.animate().cancel(); label.alpha = 1f
-            label.animate().alpha(0f).setStartDelay(1400).setDuration(600).start()
-        }
-    }
-
-    /**
-     * Arches: the art and words take one half and the arches the other, swapping each track. Glass: the art floats
-     * in the middle with the words beneath it.
-     */
-    private fun arrange(index: Int) {
-        val screen = resources.displayMetrics.widthPixels
-        column.removeAllViews()
-        val side: Int
-        if (visual == MusicVisual.ARCHES) {
-            val left = BurnIn.artOnLeft(index)
-            side = if (left) Gravity.START else Gravity.END
-            arches?.layoutParams = FrameLayout.LayoutParams((screen * 0.5f).toInt(), -1, if (left) Gravity.END else Gravity.START)
-                .apply { if (left) rightMargin = px(80) else leftMargin = px(80) }
-            column.layoutParams = FrameLayout.LayoutParams((screen * 0.36f).toInt(), -2, Gravity.CENTER_VERTICAL or side)
-                .apply { if (left) leftMargin = px(170) else rightMargin = px(170) }
-            column.addView(art, LinearLayout.LayoutParams(px(460), px(460)).apply { gravity = side })
-        } else {
-            side = Gravity.CENTER_HORIZONTAL
-            glass?.layoutParams = FrameLayout.LayoutParams(-1, -1)
-            column.layoutParams = FrameLayout.LayoutParams((screen * 0.5f).toInt(), -2, Gravity.CENTER)
-            column.addView(art, LinearLayout.LayoutParams(px(520), px(520)).apply { gravity = side })
-        }
-        column.addView(words, LinearLayout.LayoutParams(-1, -2).apply { topMargin = px(56) })
-        listOf(eyebrow, title, byline, times, upNext).forEach { it.gravity = side }
-        arches?.shift = index
-        root.requestLayout()
-    }
-
-    private var lastPalette: IntArray? = null
 
     private fun showTrack() {
         val i = player.currentMediaItemIndex
         val t = tracks.getOrNull(i) ?: return
         if (i != shownIndex) {
-            shownIndex = i; arrange(i)
+            shownIndex = i
             lastInput = SystemClock.elapsedRealtime()
-            art.setImageDrawable(null)
-            Music.cover(t.coverArt, 800)?.let { key ->
-                images.load(key, maxWidth = px(520)) { b ->
+            Music.cover(t.coverArt, 1000)?.let { key ->
+                images.load(key, maxWidth = px(ART)) { b ->
                     if (shownIndex != i) return@load
                     art.setImageBitmap(b)
                     worker.execute {
-                        val small = Bitmap.createScaledBitmap(b, 24, 24, true)
-                        val pixels = IntArray(24 * 24).also { small.getPixels(it, 0, 24, 0, 0, 24, 24) }
-                        val colours = ArtPalette.pick(pixels, GlassField.POOLS)
-                        ui.post { if (shownIndex == i) { lastPalette = colours; glass?.setPalette(colours) } }
+                        val layers = runCatching { backdrop.prepare(b) }.getOrNull() ?: return@execute
+                        ui.post { if (shownIndex == i && !isDestroyed) backdrop.show(layers) }
                     }
                 }
             }
             worker.execute { client.scrobble(t.id, submission = false) }
         }
-        eyebrow.text = if (tracks.size > 1) "Now playing  \u00b7  ${i + 1} of ${tracks.size}" else "Now playing"
         title.text = t.title
-        byline.text = listOfNotNull(t.artist, t.album).joinToString("  \u00b7  ")
-        upNext.text = tracks.getOrNull(i + 1)?.let { "Next: ${it.title}" + (it.artist?.let { a -> " \u00b7 $a" } ?: "") }.orEmpty()
+        artist.text = t.artist.orEmpty()
+        album.text = t.album.orEmpty()
+        val following = tracks.getOrNull(i + 1)
+        nextLabel.visibility = if (following == null) View.GONE else View.VISIBLE
+        next.text = following?.let { n -> n.title + (n.artist?.let { " · $it" } ?: "") }.orEmpty()
+    }
+
+    /** Playing, the cover sits full size; paused, it sinks back a little. */
+    private fun settleArt() {
+        val s = if (player.isPlaying || player.playbackState == Player.STATE_BUFFERING) 1f else PAUSED_SCALE
+        art.animate().scaleX(s).scaleY(s).setDuration(450).setInterpolator(EASE).start()
     }
 
     // --- The loop -------------------------------------------------------------------------------------
@@ -261,29 +199,13 @@ class MusicPlayerActivity : Activity() {
         override fun doFrame(frameNs: Long) {
             if (isDestroyed) return
             val now = SystemClock.elapsedRealtime()
-            val dtMs = if (lastFrameNs == 0L) 16L else ((frameNs - lastFrameNs) / 1_000_000L).coerceIn(1L, 100L)
-            lastFrameNs = frameNs
-            // The sink reports its position every few milliseconds; carry it forward to this frame.
-            val at = playingUs
-            val playing = player.isPlaying
-            val ahead = if (playing) (SystemClock.elapsedRealtimeNanos() / 1000 - playingReadUs).coerceIn(0L, 100_000L) else 0L
-            val rate = history.sampleRate
-            if (playing && at != Long.MIN_VALUE && rate > 0 && history.window(at + ahead, recent)) spectrum.update(recent, rate, dtMs)
-            else spectrum.decay(dtMs)
-            Bands.group(spectrum.levels, groups)
-            springs.step(groups, dtMs)
             val clock = now - opened
-            arches?.show(springs.values, clock)
-            // Paused, the glass only needs to drift: a few frames a second will do.
-            if (playing || frame % 6 == 0) glass?.show(springs.values, clock)
-            frame++
+            backdrop.advance(clock)
             val (dx, dy) = BurnIn.drift(clock, px(DRIFT).toFloat())
-            column.translationX = dx; column.translationY = dy
-            arches?.let { it.translationX = -dx; it.translationY = dy }
+            row.translationX = dx; row.translationY = dy
             val chrome = BurnIn.chromeAlpha(now - lastInput)
             words.alpha = chrome
-            art.alpha = 0.4f + 0.6f * chrome
-            if (visual == MusicVisual.GLASS) { val s = 1f + 0.018f * springs.values[0]; art.scaleX = s; art.scaleY = s } else { art.scaleX = 1f; art.scaleY = 1f }
+            art.alpha = 0.75f + 0.25f * chrome
             updateProgress()
             Choreographer.getInstance().postFrameCallback(this)
         }
@@ -293,7 +215,8 @@ class MusicPlayerActivity : Activity() {
         val pos = player.currentPosition.coerceAtLeast(0)
         val len = player.duration.takeIf { it != C.TIME_UNSET && it > 0 } ?: (tracks.getOrNull(shownIndex)?.durationSec?.times(1000L) ?: 0L)
         progress.fraction = if (len > 0) pos.toFloat() / len else 0f
-        times.text = if (len > 0) "${clock(pos)}  /  ${clock(len)}" else clock(pos)
+        elapsed.text = clock(pos)
+        remaining.text = if (len > 0) "-" + clock((len - pos).coerceAtLeast(0)) else ""
         // Counts as played at half the track or four minutes, the usual scrobble rule.
         if (len > 0 && scrobbled != shownIndex && (pos > len / 2 || pos > 4 * 60_000)) {
             scrobbled = shownIndex
@@ -313,7 +236,7 @@ class MusicPlayerActivity : Activity() {
         android.util.Log.w(TAG, "track failed: ${error.errorCodeName}")
         failures++
         if (failures < 3 && player.hasNextMediaItem()) { player.seekToNextMediaItem(); player.prepare(); player.play() }
-        else { upNext.text = "Couldn't play this track."; lastInput = SystemClock.elapsedRealtime(); keepAwake() }
+        else { nextLabel.visibility = View.GONE; next.text = "Couldn't play this track."; lastInput = SystemClock.elapsedRealtime(); keepAwake() }
     }
 
     // --- Remote ---------------------------------------------------------------------------------------
@@ -333,11 +256,7 @@ class MusicPlayerActivity : Activity() {
             KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_MEDIA_PREVIOUS -> if (event.repeatCount == 0) player.seekToPrevious()
             KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> player.seekTo(player.currentPosition + SEEK_MS)
             KeyEvent.KEYCODE_MEDIA_REWIND -> player.seekTo((player.currentPosition - SEEK_MS).coerceAtLeast(0))
-            KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN -> if (event.repeatCount == 0) {
-                val next = visual.next()
-                settings.musicVisual = next
-                useVisual(next, announce = true)
-            }
+            KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN -> Unit
             else -> return super.onKeyDown(keyCode, event)
         }
         return true
@@ -351,85 +270,33 @@ class MusicPlayerActivity : Activity() {
     override fun onDestroy() {
         Choreographer.getInstance().removeFrameCallback(tick)
         if (::player.isInitialized) player.release()
-        glass?.release()
         worker.shutdown()
         super.onDestroy()
     }
 
-    /**
-     * Copies decoded audio into [history] with the time it will play, and notes what is playing now. Runs on the
-     * playback thread. The renderer hands the same buffer back until the sink takes it all, so each is copied once.
-     */
-    private inner class Capture(sink: AudioSink) : ForwardingAudioSink(sink) {
-        private var rate = 0
-        private var channels = 0
-        private var encoding = C.ENCODING_INVALID
-        private var lastPts = Long.MIN_VALUE
-        private var mono = FloatArray(8192)
-
-        override fun configure(inputFormat: Format, specifiedBufferSize: Int, outputChannels: IntArray?) {
-            rate = inputFormat.sampleRate; channels = inputFormat.channelCount; encoding = inputFormat.pcmEncoding
-            super.configure(inputFormat, specifiedBufferSize, outputChannels)
-        }
-
-        override fun handleBuffer(buffer: ByteBuffer, presentationTimeUs: Long, encodedAccessUnitCount: Int): Boolean {
-            if (presentationTimeUs != lastPts) { lastPts = presentationTimeUs; copy(buffer, presentationTimeUs) }
-            return super.handleBuffer(buffer, presentationTimeUs, encodedAccessUnitCount)
-        }
-
-        override fun getCurrentPositionUs(sourceEnded: Boolean): Long {
-            val p = super.getCurrentPositionUs(sourceEnded)
-            if (p != AudioSink.CURRENT_POSITION_NOT_SET) { playingUs = p; playingReadUs = SystemClock.elapsedRealtimeNanos() / 1000 }
-            return p
-        }
-
-        override fun flush() {
-            history.clear(); lastPts = Long.MIN_VALUE; playingUs = Long.MIN_VALUE
-            super.flush()
-        }
-
-        private fun copy(buffer: ByteBuffer, ptsUs: Long) {
-            val ch = channels.takeIf { it > 0 } ?: return
-            val bytes = when (encoding) {
-                C.ENCODING_PCM_16BIT -> 2; C.ENCODING_PCM_24BIT -> 3; C.ENCODING_PCM_32BIT, C.ENCODING_PCM_FLOAT -> 4; else -> return
-            }
-            val b = buffer.duplicate().order(ByteOrder.LITTLE_ENDIAN)
-            val frames = b.remaining() / (bytes * ch)
-            if (frames == 0 || rate <= 0) return
-            if (mono.size < frames) mono = FloatArray(frames)
-            for (f in 0 until frames) {
-                var sum = 0f
-                for (c in 0 until ch) sum += when (encoding) {
-                    C.ENCODING_PCM_16BIT -> b.short / 32768f
-                    C.ENCODING_PCM_24BIT -> ((b.get().toInt() and 0xFF) or ((b.get().toInt() and 0xFF) shl 8) or (b.get().toInt() shl 16)) / 8388608f
-                    C.ENCODING_PCM_32BIT -> b.int / 2147483648f
-                    else -> b.float
-                }
-                mono[f] = sum / ch
-            }
-            history.add(mono, frames, ptsUs, rate)
-        }
-    }
-
-    /** A thin rounded bar: the played part in cream, the rest faint. */
-    private class Progress(context: Context) : View(context) {
+    /** A thin rounded bar: the played part bright, the rest faint. */
+    private class Progress(context: android.content.Context) : View(context) {
         var fraction = 0f
             set(v) { val c = v.coerceIn(0f, 1f); if (c != field) { field = c; invalidate() } }
-        private val rest = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Cinema.alpha(Cinema.CREAM, 0.14f) }
-        private val done = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Cinema.alpha(Cinema.CREAM, 0.7f) }
+        private val rest = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x38FFFFFF }
+        private val done = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xD9FFFFFF.toInt() }
 
         override fun onDraw(canvas: Canvas) {
             val r = height / 2f
             canvas.drawRoundRect(0f, 0f, width.toFloat(), height.toFloat(), r, r, rest)
-            if (fraction > 0f) canvas.drawRoundRect(0f, 0f, width * fraction, height.toFloat(), r, r, done)
+            if (fraction > 0f) canvas.drawRoundRect(0f, 0f, maxOf(height.toFloat(), width * fraction), height.toFloat(), r, r, done)
         }
     }
 
     companion object {
         private const val TAG = "CinemaMusic"
-        private const val BANDS = 64
-        private const val DRIFT = 28
+        private const val ART = 660
+        private const val WORDS = 760
+        private const val GAP = 110
+        private const val DRIFT = 36
+        private const val PAUSED_SCALE = 0.86f
         private const val SEEK_MS = 10_000L
+        private val EASE = PathInterpolator(0.3f, 0f, 0.2f, 1f)
 
         fun launch(activity: Activity, tracks: List<MusicTrack>, start: Int) {
             if (tracks.isEmpty() || Music.client == null) return

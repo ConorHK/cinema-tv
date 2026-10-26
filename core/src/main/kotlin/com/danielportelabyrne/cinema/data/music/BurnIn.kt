@@ -24,7 +24,4 @@ object BurnIn {
         idleMs >= IDLE_MS + FADE_MS -> DIM
         else -> 1f - (1f - DIM) * (idleMs - IDLE_MS) / FADE_MS
     }
-
-    /** The art swaps sides each track, so no edge stays lit. */
-    fun artOnLeft(trackIndex: Int): Boolean = trackIndex % 2 == 0
 }

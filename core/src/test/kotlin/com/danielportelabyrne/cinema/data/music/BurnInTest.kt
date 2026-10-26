@@ -20,8 +20,4 @@ class BurnInTest {
         assertEquals(0.8f, BurnIn.chromeAlpha(32_000), 0.001f)
         assertEquals(BurnIn.DIM, BurnIn.chromeAlpha(60_000), 0f)
     }
-
-    @Test fun art_alternates_sides() {
-        assertTrue(BurnIn.artOnLeft(0)); assertFalse(BurnIn.artOnLeft(1)); assertTrue(BurnIn.artOnLeft(2))
-    }
 }
