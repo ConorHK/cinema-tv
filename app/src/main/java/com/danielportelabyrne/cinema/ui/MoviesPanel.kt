@@ -899,6 +899,9 @@ class MoviesPanel(
     private var musicTab: View? = null
     private var musicClient: com.danielportelabyrne.cinema.data.music.SubsonicClient? = null
 
+    /** One track row and the gap after it. */
+    private val trackStep: Int get() = Cinema.px(activity, TRACK_HEIGHT + TRACK_GAP)
+
     private fun shownTabs(): List<LinearLayout> = tabs.keys.filter { it.visibility == View.VISIBLE }
 
     /** Music sits in the rail only while a server is set up. */
@@ -1035,7 +1038,7 @@ class MoviesPanel(
             tracks.forEachIndexed { i, t ->
                 val number = listOfNotNull(t.disc?.takeIf { discs }, t.number).joinToString("-").ifEmpty { "${i + 1}" }
                 list.addView(musicTrackLine(number, t.title, t.artist?.takeIf { it != album.artist }, t.durationSec) { playMusic(tracks, i) },
-                    LinearLayout.LayoutParams(-1, Cinema.px(activity, 84)).apply { if (i > 0) topMargin = Cinema.px(activity, 8) })
+                    LinearLayout.LayoutParams(-1, Cinema.px(activity, TRACK_HEIGHT)).apply { if (i > 0) topMargin = Cinema.px(activity, TRACK_GAP) })
             }
             content.addView(list, LinearLayout.LayoutParams(-1, -2))
         }
@@ -1061,7 +1064,8 @@ class MoviesPanel(
             line.background = if (f) lit else rest
             name.setTextColor(if (f) Cinema.INK else Cinema.CREAM)
             listOf(num, by, time).forEach { it.setTextColor(if (f) Cinema.INK else if (it === by) Cinema.MUTED else Cinema.DIM) }
-            if (f) reveal(line)
+            // Keep three tracks in view past the focused one, so the list moves before focus reaches the edge.
+            if (f) FastFocus.reveal(line, page, trackStep * 3, trackStep * 3, pageStart)
         }
         line.setOnClickListener { onSelect() }
         return line
@@ -3739,6 +3743,8 @@ class MoviesPanel(
         const val RAIL_GAP = 32          // mockup px, floating rail to screen edge
         const val PREWARM_SHELVES = 4
         const val CARDS_PER_FRAME = 4
+        const val TRACK_HEIGHT = 84
+        const val TRACK_GAP = 8
         const val EAGER_POSTERS = 9
         const val LB_ROW_LIMIT = 40     // a Letterboxd row shows at most this many; the page itself holds more      // a screen and a half of posters per row; the rest load as the row scrolls
         const val HERO_BACKDROP_PX = 1920
