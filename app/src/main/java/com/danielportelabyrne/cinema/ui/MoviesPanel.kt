@@ -3592,8 +3592,8 @@ class MoviesPanel(
                                 }
                             }
                         }
-                        railTarget = cards.firstOrNull { it.mine != null && !it.mine.played && it.mine.resumeMs > 0 }?.card?.firstStop
-                            ?: cards.first().card.firstStop
+                        railTarget = (cards.firstOrNull { it.mine != null && !it.mine.played && it.mine.resumeMs > 0 }
+                            ?: cards.firstOrNull { it.mine != null && !it.mine.played } ?: cards.firstOrNull { it.mine != null } ?: cards.first()).card.firstStop
                     }
                     settle()
                     restateShown = {
@@ -3638,7 +3638,9 @@ class MoviesPanel(
             tabs[tab] = s
             tabRow.addView(tab, LinearLayout.LayoutParams(-2, Cinema.px(activity, 62)).apply { if (i > 0) marginStart = Cinema.px(activity, 10) })
         }
-        showSeason(seasons.first())
+        val start = EpisodeCards.startSeason(seasons.map { it.number }, owned).let { n -> seasons.firstOrNull { it.number == n } } ?: seasons.first()
+        showSeason(start)
+        selectedTab()?.let { tab -> tabScroller.post { tabScroller.scrollTo((tab.left - Cinema.px(activity, 24)).coerceAtLeast(0), 0) } }
         return { restateShown() }
     }
 

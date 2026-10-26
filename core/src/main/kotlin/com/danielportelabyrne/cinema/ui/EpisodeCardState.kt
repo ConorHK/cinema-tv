@@ -70,6 +70,17 @@ fun episodeCardState(
 
 /** Plain helpers for the season bar and the cards, kept apart from the views so they can be tested. */
 object EpisodeCards {
+    /**
+     * The season a series page opens on, from [seasons] and the episodes owned: the one part-watched, else the first owned
+     * one not yet watched, else the latest owned. Owning nothing opens the first season.
+     */
+    fun startSeason(seasons: List<Int>, owned: List<com.danielportelabyrne.cinema.data.jellyfin.JellyfinItem>): Int? {
+        val mine = owned.filter { it.season in seasons && it.episode != null }
+            .sortedWith(compareBy<com.danielportelabyrne.cinema.data.jellyfin.JellyfinItem>({ it.season }, { it.episode }))
+        return (mine.lastOrNull { it.resumeMs > 0 && !it.played } ?: mine.firstOrNull { !it.played } ?: mine.lastOrNull())?.season
+            ?: seasons.firstOrNull()
+    }
+
     private val MONTHS = arrayOf("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 
     /** "2026-12-21" as "21 Dec 2026"; anything unreadable gives null. */

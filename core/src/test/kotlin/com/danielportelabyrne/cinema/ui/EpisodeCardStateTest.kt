@@ -1,5 +1,6 @@
 package com.danielportelabyrne.cinema.ui
 
+import com.danielportelabyrne.cinema.data.jellyfin.JellyfinItem
 import com.danielportelabyrne.cinema.data.movies.Availability
 import com.danielportelabyrne.cinema.data.movies.EpisodeState
 import com.danielportelabyrne.cinema.data.movies.QueueItem
@@ -109,5 +110,15 @@ class EpisodeCardStateTest {
         assertEquals(listOf("8 episodes" to true, "All in your library" to false), EpisodeCards.seasonInfo(8, 8, 0))
         assertEquals(listOf("10 episodes" to true, "1 in library" to false, "1 downloading" to false), EpisodeCards.seasonInfo(10, 1, 1))
         assertEquals(listOf("1 episode" to true), EpisodeCards.seasonInfo(1, 0, 0))
+    }
+
+    @Test fun a_series_opens_on_the_season_you_have() {
+        fun ep(s: Int, e: Int, played: Boolean = false, resume: Long = 0) = JellyfinItem("$s-$e", "x", null, "Episode", null, season = s, episode = e, played = played, resumeMs = resume)
+        val all = listOf(1, 2, 3)
+        assertEquals(1, EpisodeCards.startSeason(all, emptyList()))
+        assertEquals(3, EpisodeCards.startSeason(all, listOf(ep(3, 4))))
+        assertEquals(2, EpisodeCards.startSeason(all, listOf(ep(1, 1, played = true), ep(2, 1), ep(3, 1))))
+        assertEquals(3, EpisodeCards.startSeason(all, listOf(ep(1, 1), ep(3, 2, resume = 9))))
+        assertEquals(3, EpisodeCards.startSeason(all, listOf(ep(2, 1, played = true), ep(3, 1, played = true))))
     }
 }
