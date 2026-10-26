@@ -75,6 +75,9 @@ stdenv.mkDerivation (finalAttrs: {
     "-Dorg.gradle.java.home=${jdk17.home}"
     # Maven's aapt2 is dynamically linked and fails on NixOS.
     "-Pandroid.aapt2FromMavenOverride=${sdk}/build-tools/${buildToolsVersion}/aapt2"
+    # Release lint checks for newer library versions against Google's version lists, which change with every
+    # release, so their hashes in deps.json would keep breaking. Lint still runs in normal Gradle builds.
+    "--exclude-task=lintVitalRelease"
   ]
   ++ lib.optional (presetFile != null) "-Pcinema.preset=${presetFile}";
 
