@@ -36,11 +36,9 @@ import com.danielportelabyrne.cinema.design.cinema.StripeDrawable
 class EpisodeCard(context: Context, val number: Int, name: String, overview: String?) : FrameLayout(context) {
     val play = ActionDisc(context, 78, R.drawable.ic_cin_play, 34, nudge = 2f)
     val download = ActionDisc(context, 62, R.drawable.ic_cin_dl, 28)
-    /** Under Play on a library episode: an open eye when watched; OK flips it. */
-    val mark = ActionDisc(context, 62, R.drawable.ic_cin_eye_off, 28).apply { visibility = GONE }
     /** Called once the card lights up or goes out, so the page can scroll it into view. */
     var onLit: ((Boolean) -> Unit)? = null
-    /** Shown while the Download or eye disc has focus ("Download S2 E4"); null for none. */
+    /** Shown while Download, or Play on a library episode, has focus ("Download S2 E4"); null for none. */
     var tipText: String? = null
         set(value) { field = value; refreshTip() }
 
@@ -108,7 +106,6 @@ class EpisodeCard(context: Context, val number: Int, name: String, overview: Str
         // Discs are larger than they look (room for the focus rings), so the gap is taken back off their margins.
         val playColumn = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL; clipChildren = false; clipToPadding = false }
         playColumn.addView(play, LinearLayout.LayoutParams(play.box, play.box))
-        playColumn.addView(mark, LinearLayout.LayoutParams(mark.box, mark.box).apply { topMargin = p(32) - play.pad - mark.pad })
         playColumn.addView(download, LinearLayout.LayoutParams(download.box, download.box))
         actions.addView(playColumn, LinearLayout.LayoutParams(-2, -2))
         still.addView(actions, LayoutParams(-1, -1))
@@ -129,11 +126,10 @@ class EpisodeCard(context: Context, val number: Int, name: String, overview: Str
 
         play.onFocus = { post { refresh() } }
         download.onFocus = { post { refresh() } }
-        mark.onFocus = { post { refresh() } }
         buildPlaceholder()
     }
 
-    /** Watched all the way through: the eye opens and a WATCHED tag shows. */
+    /** Watched all the way through: a WATCHED tag shows. */
     var watched = false
         set(value) { field = value; showPlayIcon(); showWatched() }
 
@@ -141,19 +137,17 @@ class EpisodeCard(context: Context, val number: Int, name: String, overview: Str
     var markable = false
     private var shownState: CardState? = null
 
-    /** Whether the eye shows for [look]; it replaces the library tick. */
+    /** Whether [look] is a library episode that can be marked. */
     fun marks(look: CardLook): Boolean = markable && look.state == CardState.LIBRARY
 
     private fun showWatched() {
         if (shownState != CardState.LIBRARY) return
-        mark.set(if (watched) R.drawable.ic_cin_eye else R.drawable.ic_cin_eye_off, Cinema.CREAM, ring = false, progress = null)
-        mark.contentDescription = if (watched) "Watched. Mark episode $number unwatched" else "Not watched. Mark episode $number watched"
         refreshTip()
     }
 
-    /** The eye or Download under Play, when Play shows. */
+    /** Download under Play, when Play shows. */
     private val below: View? get() = if (play.visibility != VISIBLE) null
-        else listOf(mark, download).firstOrNull { it.visibility == VISIBLE && it.isFocusable }
+        else download.takeIf { it.visibility == VISIBLE && it.isFocusable }
 
     /** The disc under Play sits off the rail: Down reaches it, and Left or Right leave as if from Play. */
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
@@ -186,8 +180,7 @@ class EpisodeCard(context: Context, val number: Int, name: String, overview: Str
     fun keepsStop(view: View, look: CardLook): Boolean = when (view) {
         this -> stopsAtCard(look)
         play -> !stopsAtCard(look) && look.playShown
-        download -> !stopsAtCard(look) && look.downloadShown && look.downloadFocusable && !marks(look)
-        mark -> !stopsAtCard(look) && marks(look)
+        download -> !stopsAtCard(look) && look.downloadShown && look.downloadFocusable
         else -> false
     }
 
@@ -211,10 +204,9 @@ class EpisodeCard(context: Context, val number: Int, name: String, overview: Str
         actions.visibility = if (cardStop) GONE else VISIBLE
         play.visibility = if (look.playShown) VISIBLE else GONE
         play.isFocusable = look.playShown
-        download.visibility = if (look.downloadShown && !marks(look)) VISIBLE else GONE
+        download.visibility = if (look.downloadShown) VISIBLE else GONE
         // Alone (unaired, no Play), Download takes Play's place.
         (download.layoutParams as LinearLayout.LayoutParams).topMargin = if (look.playShown) p(32) - play.pad - download.pad else 0
-        mark.visibility = if (marks(look)) VISIBLE else GONE
         shownState = look.state
         download.isFocusable = look.downloadFocusable
         download.isClickable = look.downloadFocusable
@@ -336,8 +328,9 @@ class EpisodeCard(context: Context, val number: Int, name: String, overview: Str
 
     /** Saffron with [tipText] while a disc has focus; a watched episode keeps a dark WATCHED tag. */
     private fun refreshTip() {
-        val focused = (download.isFocused || mark.isFocused) && !tipText.isNullOrEmpty()
-        val resting = !focused && watched && mark.visibility == VISIBLE
+        val markHere = markable && shownState == CardState.LIBRARY
+        val focused = (download.isFocused || play.isFocused && markHere) && !tipText.isNullOrEmpty()
+        val resting = !focused && watched && markHere
         tip.visibility = if (focused || resting) VISIBLE else GONE
         tip.text = if (focused) tipText else "WATCHED"
         tip.background = if (focused) tipLit else tipRest

@@ -339,7 +339,7 @@ class MoviesPanel(
 
     private var marking = false
 
-    /** Marks a library title watched or not. A series asks first: it changes every episode. */
+    /** Marks a library title watched or not, after asking. */
     private fun markTitle(e: Entry, lib: JellyfinItem) {
         val played = !lib.played
         fun mark() {
@@ -357,10 +357,14 @@ class MoviesPanel(
                 }
             }
         }
-        if (!lib.isSeries) { mark(); return }
         val label = if (played) "Mark watched" else "Mark unwatched"
-        infoSheet.show(label.uppercase(), e.title.name, null,
-            listOf(if (played) "Every episode is marked watched." else "Every episode is marked unwatched, and resume points are cleared."), null, listOf(
+        val note = when {
+            lib.isSeries && played -> "Every episode is marked watched."
+            lib.isSeries -> "Every episode is marked unwatched, and resume points are cleared."
+            played -> "Jellyfin counts it as seen."
+            else -> "Jellyfin forgets you saw it."
+        }
+        infoSheet.show(label.uppercase(), e.title.name, null, listOf(note), null, listOf(
                 SheetAction(label, primary = true) { mark() },
                 SheetAction("Cancel") { }))
     }
@@ -1922,7 +1926,9 @@ class MoviesPanel(
     private class Resumable(
         val title: String, val subtitle: String?, val positionMs: Long, val durationMs: Long, val lastMs: Long,
         val open: () -> Unit, val still: Bitmap?, val stillUrl: String?,
-        val quality: String? = null, val isNew: Boolean = false, val remove: () -> Unit = {}
+        val quality: String? = null, val isNew: Boolean = false, val remove: () -> Unit = {},
+        /** A library title: marks it watched in Jellyfin. */
+        val markWatched: (() -> Boolean)? = null
     )
 
     private val continueSettings by lazy { com.danielportelabyrne.cinema.data.settings.CinemaSettings(AndroidPlatform(activity)) }
@@ -1955,7 +1961,8 @@ class MoviesPanel(
                 Resumable(item.displayTitle, item.displaySubtitle, item.resumeMs, (item.runtimeMin ?: 0) * 60_000L, entry.atMs,
                     open = { playbackStarted = true; JellyfinPlayback.play(activity, jellyfin, item, listOfNotNull(item.displayTitle, item.episodeLabel()).joinToString(" · "), item.resumeKey) },
                     still = null, stillUrl = if (item.hasBackdrop) jellyfin.backdropUrl(item.id) else JellyfinApi.episodeImageUrl(JellyfinApi.cleanBase(jellyfin.server), item.id, 640),
-                    quality = item.quality, isNew = entry.isNew, remove = { hideFromContinue(entry.hideKey) })
+                    quality = item.quality, isNew = entry.isNew, remove = { hideFromContinue(entry.hideKey) },
+                    markWatched = { jellyfin.setPlayed(item.id, true) })
             }
             val all = (streams + films).sortedByDescending { it.lastMs }.take(12)
             activity.runOnUiThread {
@@ -1983,8 +1990,19 @@ class MoviesPanel(
         card.setOnClickListener { r.open() }
         // Hold OK to take it off the row.
         card.setOnLongClickListener {
-            infoSheet.show("CONTINUE WATCHING", r.title, r.subtitle, listOf("It comes back if you play it again."), null, listOf(
-                SheetAction("Remove", "Take it off this row", primary = true) {
+            infoSheet.show("CONTINUE WATCHING", r.title, r.subtitle, listOf("Removing hides it until you play it again."), null, listOfNotNull(
+                r.markWatched?.let { mark ->
+                    SheetAction("Mark watched", "Jellyfin counts it as seen", primary = true) {
+                        worker.execute {
+                            val done = mark()
+                            ui.post {
+                                if (!done) Toast.makeText(activity, "Couldn't reach Jellyfin", Toast.LENGTH_SHORT).show()
+                                else { markedWatched(); continueRow?.let { row -> fillContinue(row, generation) } }
+                            }
+                        }
+                    }
+                },
+                SheetAction("Remove", "Take it off this row", primary = r.markWatched == null) {
                     worker.execute { r.remove(); ui.post { continueRow?.let { row -> fillContinue(row, generation) } } }
                 }
             ))
@@ -2984,7 +3002,6 @@ class MoviesPanel(
         val clearStale = CinemaButton(activity, CinemaButton.Kind.GLASS, "Clear stale request").apply { visibility = View.GONE }
         // A part-watched library film: Continue (the primary) and Restart from the beginning.
         val restart = CinemaButton(activity, CinemaButton.Kind.GLASS, "Restart", R.drawable.ic_cin_play).apply { visibility = View.GONE }
-        val mark = CinemaButton(activity, CinemaButton.Kind.GLASS, "Mark watched", R.drawable.ic_cin_eye_off).apply { visibility = if (inLibrary) View.VISIBLE else View.GONE }
         // Not in the library: play a seeded copy now, instead of waiting for a download to finish.
         val stream = CinemaButton(activity, CinemaButton.Kind.GLASS, "Stream now", R.drawable.ic_cin_play).apply {
             visibility = if (!inLibrary && t.kind == Kind.MOVIE && seerr.hasStreamService) View.VISIBLE else View.GONE
@@ -2997,7 +3014,6 @@ class MoviesPanel(
         buttons.addView(restart, LinearLayout.LayoutParams(-2, h).apply { marginEnd = gap })
         buttons.addView(stream, LinearLayout.LayoutParams(-2, h).apply { marginEnd = gap })
         buttons.addView(clearStale, LinearLayout.LayoutParams(-2, h).apply { marginEnd = gap })
-        buttons.addView(mark, LinearLayout.LayoutParams(-2, h).apply { marginEnd = gap })
         // Anything on disk can be taken off it, a series or a film, from its own page.
         if (inLibrary) buttons.addView(CinemaButton(activity, CinemaButton.Kind.DANGER, "Delete", R.drawable.ic_cin_trash).apply { setOnClickListener { confirmDelete(e) } },
             LinearLayout.LayoutParams(-2, h).apply { marginEnd = gap })
@@ -3032,13 +3048,13 @@ class MoviesPanel(
             column.setPadding(column.paddingLeft, column.paddingTop, column.paddingRight, Cinema.px(activity, 520))
             detailScrolledState(scroll, moreHeading!!, r.scroller, t, topRow)
         }
-        setupPrimary(primary, e, clearStale, restart, mark) { openDetail(e, related) }
+        setupPrimary(primary, e, clearStale, restart) { openDetail(e, related) }
         // A film that can only be streamed: have the stream service search for it now, so Stream now starts quicker.
         if (!inLibrary && t.kind == Kind.MOVIE && seerr.isSignedIn) slowPool.execute { seerr.prepareStream(t.name, t.year, runtimeMin = t.runtimeMin) }
         detailEntry = e
         // A series' progress lives on its episode cards, so its page is drawn again; a film just redoes its buttons.
         detailButtons = if (t.kind == Kind.SHOW) ({ val back = returnFocus; closeDetail(restoreFocus = false); openDetail(e, related); returnFocus = back })
-            else ({ setupPrimary(primary, e, clearStale, restart, mark) { openDetail(e, related) } })
+            else ({ setupPrimary(primary, e, clearStale, restart) { openDetail(e, related) } })
         // The title page covers the screen, so the page beneath it is not drawn at all while it is open (it keeps its
         // place and its scroll position, so Back returns to exactly where it was).
         body.visibility = View.INVISIBLE
@@ -3089,7 +3105,7 @@ class MoviesPanel(
     private var detailEntry: Entry? = null
     private var detailButtons: (() -> Unit)? = null
 
-    private fun setupPrimary(button: CinemaButton, e: Entry, clearStale: CinemaButton, restart: CinemaButton? = null, mark: CinemaButton? = null, refresh: () -> Unit) {
+    private fun setupPrimary(button: CinemaButton, e: Entry, clearStale: CinemaButton, restart: CinemaButton? = null, refresh: () -> Unit) {
         fun set(label: String, enabled: Boolean, action: (() -> Unit)?) {
             button.setText(label); button.isEnabled = enabled
             // Disabled while checking, so focus arrives late.
@@ -3107,9 +3123,7 @@ class MoviesPanel(
             set(WatchProgress.label(actions.first(), state), true) { watch(lib, e.title) }
             restart?.visibility = if (FilmAction.RESTART in actions) View.VISIBLE else View.GONE
             restart?.setOnClickListener { watch(lib, e.title, fromStart = true) }
-            mark?.setText(if (lib.played) "Mark unwatched" else "Mark watched")
-            mark?.setIcon(if (lib.played) R.drawable.ic_cin_eye else R.drawable.ic_cin_eye_off)
-            mark?.setOnClickListener { markTitle(e, lib) }
+            button.setOnLongClickListener { markTitle(e, lib); true }
             return
         }
         val tmdb = e.title.tmdbId?.toLongOrNull()
@@ -3143,7 +3157,7 @@ class MoviesPanel(
                 if (show && state?.staleCandidate == true && seerr.hasRequestHelper) button.visibility = View.VISIBLE
                 if (show && button.visibility != View.VISIBLE) return@runOnUiThread
                 if (state == null) {
-                    set("Retry status check", true) { setupPrimary(button, e, clearStale, restart, mark, refresh) }
+                    set("Retry status check", true) { setupPrimary(button, e, clearStale, restart, refresh) }
                     return@runOnUiThread
                 }
                 if (state.staleCandidate && seerr.hasRequestHelper) {
@@ -3448,7 +3462,7 @@ class MoviesPanel(
                 card.tipText = when (look.state) {
                     CardState.REQUEST -> "Download S${s.number} E${ep.number}"
                     CardState.UNAIRED -> EpisodeCards.preRequestTip(s.number, ep.number)
-                    CardState.LIBRARY -> if (item == null) null else if (card.watched) "Mark unwatched" else "Mark watched"
+                    CardState.LIBRARY -> if (item == null) null else if (card.watched) "Hold OK to mark unwatched" else "Hold OK to mark watched"
                     else -> null
                 }
             }
@@ -3477,20 +3491,24 @@ class MoviesPanel(
                 if (now != null) { playbackStarted = true; remember(e.title, streamed = false); JellyfinPlayback.play(activity, jellyfin, now, label, "jf:${now.id}") }
                 else streamNow(e, v, s.number to ep.number, label)
             }
-            card.mark.setOnClickListener {
-                val now = item ?: return@setOnClickListener
+            // Hold OK on Play to mark it watched or not.
+            card.play.setOnLongClickListener {
+                val now = item ?: return@setOnLongClickListener false
                 val played = !card.watched
-                card.mark.isClickable = false
-                worker.execute {
-                    val done = jellyfin.setPlayed(now.id, played)
-                    activity.runOnUiThread {
-                        card.mark.isClickable = true
-                        if (!done) { Toast.makeText(activity, "Couldn't reach Jellyfin", Toast.LENGTH_SHORT).show(); return@runOnUiThread }
-                        item = now.copy(played = played, resumeMs = 0L)
-                        if (token == loading) { showProgress(); rebind() }
-                        markedWatched()
-                    }
-                }
+                val action = if (played) "Mark watched" else "Mark unwatched"
+                infoSheet.show(action.uppercase(), label, null, listOf(if (played) "Jellyfin counts it as seen." else "Jellyfin forgets you saw it."), null, listOf(
+                    SheetAction(action, primary = true) {
+                        worker.execute {
+                            val done = jellyfin.setPlayed(now.id, played)
+                            activity.runOnUiThread {
+                                if (!done) { Toast.makeText(activity, "Couldn't reach Jellyfin", Toast.LENGTH_SHORT).show(); return@runOnUiThread }
+                                item = now.copy(played = played, resumeMs = 0L)
+                                if (token == loading) { showProgress(); rebind() }
+                                markedWatched()
+                            }
+                        }
+                    }))
+                true
             }
             card.download.setOnClickListener {
                 when (look.state) {
@@ -3763,6 +3781,7 @@ class MoviesPanel(
         chip?.let { card.chip(it) }
         card.onFocus = { lit -> if (lit) { reveal(card); if (onSelect == null) prefetchOnRest(card, e) } }
         card.setOnClickListener { if (onSelect != null) onSelect() else if (nested) openDetail(e, related) else { closeDetail(restoreFocus = false); openDetail(e, related) } }
+        card.setOnLongClickListener { e.library?.let { markTitle(e, it) } != null }
         return card
     }
 
