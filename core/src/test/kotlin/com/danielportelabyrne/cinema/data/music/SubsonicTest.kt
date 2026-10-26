@@ -99,6 +99,36 @@ class SubsonicTest {
         assertEquals(3, fake.paths.size)
     }
 
+    @Test fun reads_timed_lyrics_and_finds_the_line_playing() {
+        val l = SubsonicApi.lyrics(body(""","lyricsList":{"structuredLyrics":[
+            {"lang":"eng","synced":false,"line":[{"value":"plain"}]},
+            {"lang":"eng","synced":true,"offset":100,"line":[
+                {"start":0,"value":""},{"start":1000,"value":"First "},{"start":3000,"value":""},{"start":3500,"value":""},
+                {"start":5000,"value":"Second"},{"start":9000,"value":""}]}]}"""))!!
+        assertTrue(l.synced)
+        assertEquals(listOf(LyricLine(900, "First"), LyricLine(2900, ""), LyricLine(4900, "Second")), l.lines)
+        assertEquals(-1, l.lineAt(500)); assertEquals(0, l.lineAt(900)); assertEquals(1, l.lineAt(4000)); assertEquals(2, l.lineAt(60_000))
+        assertNull(SubsonicApi.lyrics(body(""","lyricsList":{"structuredLyrics":[]}""")))
+    }
+
+    @Test fun reads_plain_lyrics() {
+        val l = SubsonicApi.plainLyrics(body(""","lyrics":{"artist":"Air","title":"Talisman","value":"One\r\n\n\nTwo\n"}"""))!!
+        assertFalse(l.synced)
+        assertEquals(listOf("One", "", "Two"), l.lines.map { it.text })
+        assertEquals(-1, l.lineAt(10_000))
+        assertNull(SubsonicApi.plainLyrics(body(""","lyrics":{}""")))
+    }
+
+    @Test fun lyrics_fall_back_to_the_classic_call() {
+        val track = MusicTrack("t1", "Talisman", "Air", null, null, null, null, null, null, null)
+        val (fake, c) = client { path ->
+            if (path.startsWith("/rest/getLyricsBySongId")) HttpReply(200, """{"subsonic-response":{"status":"failed","error":{"code":0}}}""")
+            else HttpReply(200, ok(""","lyrics":{"value":"La la"}"""))
+        }
+        assertEquals("La la", c.lyrics(track)?.lines?.single()?.text)
+        assertTrue(fake.paths.last().startsWith("/rest/getLyrics?artist=Air&title=Talisman"))
+    }
+
     @Test fun failures_read_as_null() {
         val (_, c) = client { HttpReply(0) }
         assertNull(c.artists()); assertNull(c.album("x")); assertNull(c.search("air")); assertFalse(c.scrobble("t1", true))

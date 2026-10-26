@@ -2,9 +2,7 @@ package com.danielportelabyrne.cinema.ui.music
 
 import android.app.Activity
 import android.content.Intent
-import android.graphics.Canvas
 import android.graphics.Outline
-import android.graphics.Paint
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -39,6 +37,7 @@ import com.danielportelabyrne.cinema.data.music.BurnIn
 import com.danielportelabyrne.cinema.data.music.MusicTrack
 import com.danielportelabyrne.cinema.data.music.SubsonicClient
 import com.danielportelabyrne.cinema.design.Cinema
+import com.danielportelabyrne.cinema.design.cinema.WaveScrubberView
 import com.danielportelabyrne.cinema.ui.RemoteImages
 import java.util.concurrent.Executors
 
@@ -48,7 +47,10 @@ import java.util.concurrent.Executors
  * Built to sit on an OLED panel for hours: the background never stops moving, the layout drifts, and the words dim
  * when the remote is idle. Paused, the cover sinks back and the screen may sleep. Leaving stops the music.
  *
- * Remote: OK plays or pauses, Left and Right step through the queue, rewind and fast forward seek, Back leaves.
+ * With lyrics, the cover and words move into a column on the left and the lyrics fill the right.
+ *
+ * Remote: OK plays or pauses, Left and Right step through the queue, Up and Down show or hide lyrics, rewind and
+ * fast forward seek, Back leaves.
  */
 @UnstableApi
 class MusicPlayerActivity : Activity() {
@@ -66,7 +68,10 @@ class MusicPlayerActivity : Activity() {
     private lateinit var title: TextView
     private lateinit var artist: TextView
     private lateinit var album: TextView
-    private lateinit var progress: Progress
+    private lateinit var scrubber: WaveScrubberView
+    private lateinit var left: LinearLayout
+    private lateinit var lyricsView: LyricsView
+    private var lyricsShown: Boolean? = null
     private lateinit var elapsed: TextView
     private lateinit var remaining: TextView
     private lateinit var nextLabel: TextView
@@ -132,13 +137,14 @@ class MusicPlayerActivity : Activity() {
             elevation = Cinema.pxf(context, 60)
             if (Build.VERSION.SDK_INT >= 28) { outlineSpotShadowColor = 0xFF000000.toInt(); outlineAmbientShadowColor = 0xFF000000.toInt() }
         }
-        row.addView(art, LinearLayout.LayoutParams(px(ART), px(ART)))
+        left = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; clipChildren = false }
+        lyricsView = LyricsView(this)
 
-        words = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        words = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; clipChildren = false }
         title = Cinema.text(this, "", 56, white(0.96f), weight = 700).apply { maxLines = 2; ellipsize = TextUtils.TruncateAt.END; setLineSpacing(0f, 1.05f) }
         artist = Cinema.text(this, "", 36, white(0.72f), weight = 500).apply { maxLines = 1; ellipsize = TextUtils.TruncateAt.END }
         album = Cinema.text(this, "", 28, white(0.48f)).apply { maxLines = 1; ellipsize = TextUtils.TruncateAt.END }
-        progress = Progress(this)
+        scrubber = WaveScrubberView(this, amplitudePx = 8f, wavelengthPx = 120f, thicknessPx = 16f)
         elapsed = Cinema.text(this, "", 22, white(0.55f), weight = 500)
         remaining = Cinema.text(this, "", 22, white(0.55f), weight = 500).apply { gravity = Gravity.END }
         val times = LinearLayout(this).apply {
@@ -151,14 +157,40 @@ class MusicPlayerActivity : Activity() {
         words.addView(title)
         words.addView(artist, LinearLayout.LayoutParams(-1, -2).apply { topMargin = px(16) })
         words.addView(album, LinearLayout.LayoutParams(-1, -2).apply { topMargin = px(8) })
-        words.addView(progress, LinearLayout.LayoutParams(-1, px(8)).apply { topMargin = px(64) })
-        words.addView(times, LinearLayout.LayoutParams(-1, -2).apply { topMargin = px(14) })
+        // The wave keeps room for its playhead's glow; pull it out so the wave's ends line up with the text.
+        words.addView(scrubber, LinearLayout.LayoutParams(-1, px(80)).apply { topMargin = px(36); marginStart = -px(46); marginEnd = -px(46) })
+        words.addView(times, LinearLayout.LayoutParams(-1, -2).apply { topMargin = px(2) })
         words.addView(nextLabel, LinearLayout.LayoutParams(-1, -2).apply { topMargin = px(64) })
         words.addView(next, LinearLayout.LayoutParams(-1, -2).apply { topMargin = px(8) })
-        row.addView(words, LinearLayout.LayoutParams(px(WORDS), -2).apply { marginStart = px(GAP) })
-
         root.addView(row, FrameLayout.LayoutParams(-2, -2, Gravity.CENTER))
         setContentView(root)
+        arrange()
+    }
+
+    /**
+     * Without lyrics: the cover, and beside it the words. With lyrics: the cover and a shorter set of words in a
+     * column, and the lyrics filling the right.
+     */
+    private fun arrange() {
+        val withLyrics = Music.lyricsOn && lyricsView.hasLyrics
+        if (withLyrics == lyricsShown) return
+        lyricsShown = withLyrics
+        row.removeAllViews(); left.removeAllViews()
+        if (withLyrics) {
+            left.addView(art, LinearLayout.LayoutParams(px(LYRIC_ART), px(LYRIC_ART)))
+            left.addView(words, LinearLayout.LayoutParams(px(LYRIC_ART), -2).apply { topMargin = px(44) })
+            row.addView(left, LinearLayout.LayoutParams(-2, -2))
+            row.addView(lyricsView, LinearLayout.LayoutParams(px(LYRICS_WIDTH), px(LYRICS_HEIGHT)).apply { marginStart = px(150) })
+        } else {
+            row.addView(art, LinearLayout.LayoutParams(px(ART), px(ART)))
+            row.addView(words, LinearLayout.LayoutParams(px(WORDS), -2).apply { marginStart = px(GAP) })
+        }
+        Cinema.style(title, if (withLyrics) 40 else 56, white(0.96f), weight = 700)
+        Cinema.style(artist, if (withLyrics) 28 else 36, white(0.72f), weight = 500)
+        listOf(album, nextLabel, next).forEach { it.visibility = if (withLyrics) View.GONE else View.VISIBLE }
+        if (!withLyrics && tracks.getOrNull(shownIndex + 1) == null) nextLabel.visibility = View.GONE
+        row.alpha = 0f
+        row.animate().alpha(1f).setDuration(400).start()
     }
 
     private fun showTrack() {
@@ -178,12 +210,17 @@ class MusicPlayerActivity : Activity() {
                 }
             }
             worker.execute { client.scrobble(t.id, submission = false) }
+            lyricsView.set(null)
+            worker.execute {
+                val l = client.lyrics(t)
+                ui.post { if (shownIndex == i && !isDestroyed) { lyricsView.set(l); arrange() } }
+            }
         }
         title.text = t.title
         artist.text = t.artist.orEmpty()
         album.text = t.album.orEmpty()
         val following = tracks.getOrNull(i + 1)
-        nextLabel.visibility = if (following == null) View.GONE else View.VISIBLE
+        nextLabel.visibility = if (following == null || lyricsShown == true) View.GONE else View.VISIBLE
         next.text = following?.let { n -> n.title + (n.artist?.let { " · $it" } ?: "") }.orEmpty()
     }
 
@@ -214,7 +251,8 @@ class MusicPlayerActivity : Activity() {
     private fun updateProgress() {
         val pos = player.currentPosition.coerceAtLeast(0)
         val len = player.duration.takeIf { it != C.TIME_UNSET && it > 0 } ?: (tracks.getOrNull(shownIndex)?.durationSec?.times(1000L) ?: 0L)
-        progress.fraction = if (len > 0) pos.toFloat() / len else 0f
+        scrubber.progress = if (len > 0) pos.toFloat() / len else 0f
+        lyricsView.position(pos, scrubber.progress)
         elapsed.text = clock(pos)
         remaining.text = if (len > 0) "-" + clock((len - pos).coerceAtLeast(0)) else ""
         // Counts as played at half the track or four minutes, the usual scrobble rule.
@@ -256,7 +294,7 @@ class MusicPlayerActivity : Activity() {
             KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_MEDIA_PREVIOUS -> if (event.repeatCount == 0) player.seekToPrevious()
             KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> player.seekTo(player.currentPosition + SEEK_MS)
             KeyEvent.KEYCODE_MEDIA_REWIND -> player.seekTo((player.currentPosition - SEEK_MS).coerceAtLeast(0))
-            KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN -> Unit
+            KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN -> if (event.repeatCount == 0 && lyricsView.hasLyrics) { Music.lyricsOn = !Music.lyricsOn; arrange() }
             else -> return super.onKeyDown(keyCode, event)
         }
         return true
@@ -274,25 +312,14 @@ class MusicPlayerActivity : Activity() {
         super.onDestroy()
     }
 
-    /** A thin rounded bar: the played part bright, the rest faint. */
-    private class Progress(context: android.content.Context) : View(context) {
-        var fraction = 0f
-            set(v) { val c = v.coerceIn(0f, 1f); if (c != field) { field = c; invalidate() } }
-        private val rest = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x38FFFFFF }
-        private val done = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xD9FFFFFF.toInt() }
-
-        override fun onDraw(canvas: Canvas) {
-            val r = height / 2f
-            canvas.drawRoundRect(0f, 0f, width.toFloat(), height.toFloat(), r, r, rest)
-            if (fraction > 0f) canvas.drawRoundRect(0f, 0f, maxOf(height.toFloat(), width * fraction), height.toFloat(), r, r, done)
-        }
-    }
-
     companion object {
         private const val TAG = "CinemaMusic"
         private const val ART = 660
         private const val WORDS = 760
         private const val GAP = 110
+        private const val LYRIC_ART = 520
+        private const val LYRICS_WIDTH = 940
+        private const val LYRICS_HEIGHT = 900
         private const val DRIFT = 36
         private const val PAUSED_SCALE = 0.86f
         private const val SEEK_MS = 10_000L

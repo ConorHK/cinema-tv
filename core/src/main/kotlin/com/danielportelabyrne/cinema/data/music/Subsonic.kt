@@ -34,6 +34,19 @@ data class MusicTrack(
 
 data class MusicSearch(val artists: List<MusicArtist>, val albums: List<MusicAlbum>, val tracks: List<MusicTrack>)
 
+/** One line of lyrics; [startMs] is null when the lyrics are not timed. Blank text is an instrumental gap. */
+data class LyricLine(val startMs: Long?, val text: String)
+
+data class Lyrics(val synced: Boolean, val lines: List<LyricLine>) {
+    /** The line playing at [positionMs]: the last that has started, or -1 before the first. */
+    fun lineAt(positionMs: Long): Int {
+        if (!synced) return -1
+        var at = -1
+        for (i in lines.indices) { if ((lines[i].startMs ?: 0L) <= positionMs) at = i else break }
+        return at
+    }
+}
+
 /** Album lists `getAlbumList2` offers. [key] is the server's name for it. */
 enum class AlbumList(val key: String) {
     NEWEST("newest"), RECENT("recent"), FREQUENT("frequent"), RANDOM("random"), STARRED("starred"), BY_NAME("alphabeticalByName")
@@ -129,6 +142,34 @@ object SubsonicApi {
     /** `getRandomSongs`. */
     fun songs(body: JSONObject): List<MusicTrack> = objects(body.optJSONObject("randomSongs")?.optJSONArray("song")).mapNotNull { trackOf(it) }
 
+    /**
+     * OpenSubsonic `getLyricsBySongId`: the timed set if there is one, else the first. An LRC offset moves lines
+     * earlier when positive, so it is taken off each start.
+     */
+    fun lyrics(body: JSONObject): Lyrics? {
+        val sets = objects(body.optJSONObject("lyricsList")?.optJSONArray("structuredLyrics"))
+        val set = sets.firstOrNull { it.optBoolean("synced") } ?: sets.firstOrNull() ?: return null
+        val synced = set.optBoolean("synced")
+        val offset = set.optLong("offset", 0L)
+        val lines = objects(set.optJSONArray("line")).map { l ->
+            LyricLine(if (synced && l.has("start")) (l.optLong("start") - offset).coerceAtLeast(0L) else null, l.optString("value").trim())
+        }
+        return tidy(Lyrics(synced, lines))
+    }
+
+    /** Classic `getLyrics`: one block of plain text. */
+    fun plainLyrics(body: JSONObject): Lyrics? {
+        val text = body.optJSONObject("lyrics")?.optString("value").orEmpty()
+        return tidy(Lyrics(false, text.replace("\r", "").split('\n').map { LyricLine(null, it.trim()) }))
+    }
+
+    /** Drops blank lines at either end, and repeated blanks; null when nothing is left. */
+    private fun tidy(l: Lyrics): Lyrics? {
+        val trimmed = l.lines.dropWhile { it.text.isEmpty() }.dropLastWhile { it.text.isEmpty() }
+        val lines = trimmed.filterIndexed { i, line -> line.text.isNotEmpty() || trimmed[i - 1].text.isNotEmpty() }
+        return if (lines.none { it.text.isNotEmpty() }) null else Lyrics(l.synced, lines)
+    }
+
     /** `search3`. */
     fun search(body: JSONObject): MusicSearch {
         val r = body.optJSONObject("searchResult3")
@@ -182,6 +223,13 @@ class SubsonicClient internal constructor(
 
     fun search(query: String): MusicSearch? = ok("search3", listOf("query" to query, "artistCount" to "10", "albumCount" to "20", "songCount" to "30"))
         ?.let { SubsonicApi.search(it) }
+
+    /** The track's lyrics: timed from OpenSubsonic servers when they have them, else plain. Null when there are none. */
+    fun lyrics(track: MusicTrack): Lyrics? {
+        ok("getLyricsBySongId", listOf("id" to track.id))?.let { SubsonicApi.lyrics(it) }?.let { return it }
+        val artist = track.artist ?: return null
+        return ok("getLyrics", listOf("artist" to artist, "title" to track.title))?.let { SubsonicApi.plainLyrics(it) }
+    }
 
     /** Tells the server a track is playing ([submission] false) or was played. */
     fun scrobble(trackId: String, submission: Boolean): Boolean =

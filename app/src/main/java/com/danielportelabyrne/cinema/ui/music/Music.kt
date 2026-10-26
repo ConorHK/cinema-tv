@@ -33,4 +33,7 @@ object Music {
     class Queue(val tracks: List<MusicTrack>, val start: Int)
 
     @Volatile var queued: Queue? = null
+
+    /** Show lyrics when a track has them; Up or Down on now playing flips it. */
+    @Volatile var lyricsOn = true
 }
