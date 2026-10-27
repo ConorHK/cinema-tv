@@ -37,6 +37,8 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import com.danielportelabyrne.cinema.data.music.SeekKeys
 import com.danielportelabyrne.cinema.data.music.MusicTrack
 import com.danielportelabyrne.cinema.data.music.SubsonicClient
+import com.danielportelabyrne.cinema.data.music.cast.CastItem
+import com.danielportelabyrne.cinema.data.music.cast.Transport
 import com.danielportelabyrne.cinema.R
 import com.danielportelabyrne.cinema.design.Cinema
 import com.danielportelabyrne.cinema.design.cinema.WaveScrubberView
@@ -52,13 +54,18 @@ import java.util.concurrent.Executors
  * With lyrics, the words sit under the cover and the lyrics fill the other side.
  * Each new track swaps the two sides, so nothing sits still long enough to burn in.
  *
+ * A phone casting to the TV (see [Cast]) plays here too: the phone keeps the queue and sends one track at a time.
+ *
  * Remote: OK plays or pauses. Left and Right jump 10 s on a tap, change track on a double tap, and scan while held.
  * Up and Down show or hide lyrics. Rewind and fast forward seek, Back leaves.
  */
 @UnstableApi
 class MusicPlayerActivity : Activity() {
-    private lateinit var client: SubsonicClient
-    private lateinit var tracks: List<MusicTrack>
+    private var client: SubsonicClient? = null
+    private var tracks: MutableList<MusicTrack> = mutableListOf()
+    /** While a phone casts: what it sent, one per entry in [tracks]. */
+    private var castItems: MutableList<CastItem> = mutableListOf()
+    private var casting = false
     private lateinit var player: ExoPlayer
     private val ui = Handler(Looper.getMainLooper())
     private val worker = Executors.newSingleThreadExecutor()
@@ -95,42 +102,109 @@ class MusicPlayerActivity : Activity() {
     private var scanSince = 0L
     private var scanResume = false
     private var shownIndex = -1
+    private var shownTrack: MusicTrack? = null
     private var scrobbled = -1
     private var failures = 0
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val forCast = intent.getBooleanExtra(EXTRA_CAST, false)
         val queue = Music.queued
-        val c = Music.client
-        if (queue == null || c == null || queue.tracks.isEmpty()) { finish(); return }
-        client = c; tracks = queue.tracks
+        client = Music.client
+        if (!forCast && (queue == null || client == null || queue.tracks.isEmpty())) { finish(); return }
         buildViews()
 
         val renderers = DefaultRenderersFactory(this).setEnableDecoderFallback(true)
             .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
-        val base = client.config.baseUrl
+        // Cast addresses come signed by the phone.
         val signing = ResolvingDataSource.Factory(DefaultHttpDataSource.Factory().setAllowCrossProtocolRedirects(true)) { spec ->
+            val c = client
             val uri = spec.uri.toString()
-            if (uri.startsWith(base)) spec.withUri(Uri.parse(client.signed(uri.removePrefix(base)))) else spec
+            if (c != null && !casting && uri.startsWith(c.config.baseUrl)) spec.withUri(Uri.parse(c.signed(uri.removePrefix(c.config.baseUrl)))) else spec
         }
         player = ExoPlayer.Builder(this, renderers).setMediaSourceFactory(DefaultMediaSourceFactory(signing)).build()
         player.setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(), true)
-        player.setMediaItems(tracks.map { item(it) }, queue.start.coerceIn(0, tracks.lastIndex), 0L)
         player.addListener(object : Player.Listener {
-            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) { showTrack() }
+            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) { showTrack(); reportCast() }
             override fun onIsPlayingChanged(isPlaying: Boolean) { keepAwake(); settleArt() }
             override fun onPlaybackStateChanged(state: Int) { if (state == Player.STATE_READY) failures = 0; keepAwake() }
             override fun onPlayerError(error: PlaybackException) { skipBroken(error) }
         })
-        player.prepare(); player.play()
-        showTrack()
+        if (queue != null && !forCast) {
+            tracks = queue.tracks.toMutableList()
+            player.setMediaItems(tracks.map { item(it) }, queue.start.coerceIn(0, tracks.lastIndex), 0L)
+            player.prepare(); player.play()
+            showTrack()
+        }
+        Cast.attach(castLink, forCast)
         Choreographer.getInstance().postFrameCallback(tick)
     }
 
-    private fun item(t: MusicTrack): MediaItem = MediaItem.Builder()
-        .setUri(client.config.baseUrl + client.streamPath(t.id)).setMediaId(t.id)
-        .setMediaMetadata(MediaMetadata.Builder().setTitle(t.title).setArtist(t.artist).setAlbumTitle(t.album).build())
-        .build()
+    private fun item(t: MusicTrack): MediaItem {
+        val c = client!!
+        return MediaItem.Builder()
+            .setUri(c.config.baseUrl + c.streamPath(t.id)).setMediaId(t.id)
+            .setMediaMetadata(MediaMetadata.Builder().setTitle(t.title).setArtist(t.artist).setAlbumTitle(t.album).build())
+            .build()
+    }
+
+    // --- Casting --------------------------------------------------------------------------------------
+
+    private val castLink = object : Cast.Link {
+        override fun castLoad(current: CastItem, next: CastItem?) {
+            casting = true
+            castItems = listOfNotNull(current, next).toMutableList()
+            tracks = castItems.map { trackOf(it) }.toMutableList()
+            player.setMediaItems(castItems.map { MediaItem.fromUri(it.uri) }, 0, 0L)
+            player.prepare()
+            showTrack()
+        }
+
+        override fun castNext(next: CastItem?) {
+            if (!casting) return
+            val keep = player.currentMediaItemIndex + 1
+            if (keep < castItems.size) {
+                player.removeMediaItems(keep, castItems.size)
+                castItems.subList(keep, castItems.size).clear()
+                tracks.subList(keep, tracks.size).clear()
+            }
+            if (next != null) { castItems += next; tracks += trackOf(next); player.addMediaItem(MediaItem.fromUri(next.uri)) }
+        }
+
+        override fun castPlay() {
+            if (player.playbackState == Player.STATE_ENDED) player.seekTo(0L)
+            if (player.playbackState == Player.STATE_IDLE) player.prepare()
+            player.play()
+        }
+
+        override fun castPause() = player.pause()
+        override fun castStop() = finish()
+        override fun castSeek(positionMs: Long) = player.seekTo(positionMs)
+        override fun castSkip(direction: Int) = act(SeekKeys.Action.Skip(direction))
+    }
+
+    /** A cast track as the screen shows it; the server's id when it streams from the same server, for lyrics. */
+    private fun trackOf(item: CastItem): MusicTrack {
+        val base = client?.config?.baseUrl
+        val id = if (base != null && item.uri.startsWith(base)) Uri.parse(item.uri).getQueryParameter("id") else null
+        return MusicTrack(
+            id.orEmpty(), item.title ?: "Unknown track", item.artist, item.album, null, null, null,
+            item.durationMs?.let { (it / 1000).toInt() }, null, null
+        )
+    }
+
+    private fun reportCast() {
+        if (!casting) return
+        val i = player.currentMediaItemIndex
+        castItems.getOrNull(i)?.let { Cast.showing(it, castItems.getOrNull(i + 1)) }
+    }
+
+    private fun castTransport(): Transport = when {
+        player.playbackState == Player.STATE_IDLE || player.playbackState == Player.STATE_ENDED -> Transport.STOPPED
+        player.playbackState == Player.STATE_BUFFERING && player.playWhenReady -> Transport.TRANSITIONING
+        player.playWhenReady || scanDirection != 0 -> Transport.PLAYING
+        else -> Transport.PAUSED
+    }
 
     // --- Layout ---------------------------------------------------------------------------------------
 
@@ -262,25 +336,29 @@ class MusicPlayerActivity : Activity() {
     private fun showTrack() {
         val i = player.currentMediaItemIndex
         val t = tracks.getOrNull(i) ?: return
-        if (i != shownIndex) {
+        shownIndex = i
+        if (t !== shownTrack) {
             // Side changes once lyrics resolve: one move.
-            if (shownIndex != -1) flipped = !flipped
-            shownIndex = i
-            Music.cover(t.coverArt, 1000)?.let { key ->
+            if (shownTrack != null) flipped = !flipped
+            shownTrack = t
+            val c = client
+            val cover = if (casting) castItems.getOrNull(i)?.artUri else Music.cover(t.coverArt, 1000)
+            cover?.let { key ->
                 images.load(key, maxWidth = px(COVER)) { b ->
-                    if (shownIndex != i) return@load
+                    if (shownTrack !== t) return@load
                     art.setImageBitmap(b)
                     worker.execute {
                         val layers = runCatching { backdrop.prepare(b) }.getOrNull() ?: return@execute
-                        ui.post { if (shownIndex == i && !isDestroyed) backdrop.show(layers) }
+                        ui.post { if (shownTrack === t && !isDestroyed) backdrop.show(layers) }
                     }
                 }
             }
-            worker.execute { client.scrobble(t.id, submission = false) }
+            // The phone scrobbles what it casts.
+            if (c != null && !casting) worker.execute { c.scrobble(t.id, submission = false) }
             lyricsView.set(null)
             worker.execute {
-                val l = client.lyrics(t)
-                ui.post { if (shownIndex == i && !isDestroyed) { lyricsView.set(l); arrange() } }
+                val l = c?.let { runCatching { it.lyrics(t) }.getOrNull() }
+                ui.post { if (shownTrack === t && !isDestroyed) { lyricsView.set(l); arrange() } }
             }
         }
         title.text = t.title
@@ -316,10 +394,12 @@ class MusicPlayerActivity : Activity() {
         lyricsView.position(pos, scrubber.progress)
         elapsed.text = clock(pos)
         remaining.text = if (len > 0) "-" + clock((len - pos).coerceAtLeast(0)) else ""
+        if (casting) { Cast.report(castTransport(), pos, len); return }
         // Counts as played at half the track or four minutes, the usual scrobble rule.
+        val c = client ?: return
         if (scanDirection == 0 && len > 0 && scrobbled != shownIndex && (pos > len / 2 || pos > 4 * 60_000)) {
             scrobbled = shownIndex
-            tracks.getOrNull(shownIndex)?.let { t -> worker.execute { client.scrobble(t.id, submission = true) } }
+            tracks.getOrNull(shownIndex)?.let { t -> worker.execute { c.scrobble(t.id, submission = true) } }
         }
     }
 
@@ -373,11 +453,11 @@ class MusicPlayerActivity : Activity() {
         else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
     }
 
-    /** A track that will not play is skipped; three in a row stops trying. */
+    /** A track that will not play is skipped; three in a row stops trying. A casting phone decides for itself. */
     private fun skipBroken(error: PlaybackException) {
         android.util.Log.w(TAG, "track failed: ${error.errorCodeName}")
         failures++
-        if (failures < 3 && player.hasNextMediaItem()) { player.seekToNextMediaItem(); player.prepare(); player.play() }
+        if (!casting && failures < 3 && player.hasNextMediaItem()) { player.seekToNextMediaItem(); player.prepare(); player.play() }
         else { album.text = "Couldn't play this track."; keepAwake() }
     }
 
@@ -412,6 +492,7 @@ class MusicPlayerActivity : Activity() {
     }
 
     override fun onDestroy() {
+        Cast.detach(castLink, casting)
         Choreographer.getInstance().removeFrameCallback(tick)
         if (::player.isInitialized) player.release()
         worker.shutdown()
@@ -420,6 +501,8 @@ class MusicPlayerActivity : Activity() {
 
     companion object {
         private const val TAG = "CinemaMusic"
+        /** Opened to play what a phone cast. */
+        const val EXTRA_CAST = "cast"
         private const val COVER = 560
         private const val LYRICS_WIDTH = 900
         private const val LYRICS_HEIGHT = 900

@@ -983,6 +983,7 @@ class MoviesPanel(
     /** Shows the rail items of integrations that are on (Music only once a server is set up) and hides the rest. */
     private fun syncIntegrations() {
         musicClient = com.danielportelabyrne.cinema.ui.music.Music.use(music().takeIf { integrationOn(Integration.MUSIC) })
+        com.danielportelabyrne.cinema.ui.music.CastService.sync(activity)
         tabs.forEach { (item, dest) ->
             val integration = integrationOf(dest) ?: return@forEach
             val shown = integrationOn(integration) && (integration != Integration.MUSIC || musicClient != null)
