@@ -16,7 +16,7 @@ import com.danielportelabyrne.cinema.design.Cinema
 /**
  * Lyrics as Apple Music shows them: large bold lines, the one being sung bright and the rest faint, gliding up so
  * the current line sits a third of the way down. Untimed lyrics scroll with the track instead. The list fades out at
- * the top and bottom edges.
+ * the top and bottom edges. [scroll] moves it by hand until [follow].
  */
 class LyricsView(context: Context) : FrameLayout(context) {
     private val list = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
@@ -32,9 +32,14 @@ class LyricsView(context: Context) : FrameLayout(context) {
 
     val hasLyrics: Boolean get() = lyrics != null
 
+    /** Scrolled by hand; playback no longer moves the list until [follow]. */
+    var browsing = false
+        private set
+
     fun set(l: Lyrics?) {
         lyrics = l
         current = NONE
+        browsing = false
         list.removeAllViews()
         list.animate().cancel()
         l?.lines?.forEach { line ->
@@ -53,8 +58,8 @@ class LyricsView(context: Context) : FrameLayout(context) {
         val l = lyrics ?: return
         if (height == 0 || list.height == 0) return
         if (!l.synced) {
-            val travel = (list.height - height * 0.5f).coerceAtLeast(0f)
-            list.translationY = anchor() - travel * fraction.coerceIn(0f, 1f)
+            if (!browsing) list.translationY = untimedAt(fraction)
+            lastFraction = fraction
             return
         }
         val at = l.lineAt(positionMs)
@@ -66,8 +71,33 @@ class LyricsView(context: Context) : FrameLayout(context) {
             v.animate().alpha(if (on) 1f else if (i < at) PAST else FAINT).scaleX(if (on) 1f else SMALL).scaleY(if (on) 1f else SMALL)
                 .setDuration(380).setInterpolator(EASE).start()
         }
-        val top = list.getChildAt(at.coerceAtLeast(0))?.top ?: 0
-        list.animate().translationY(anchor() - top).setDuration(700).setInterpolator(EASE).start()
+        if (!browsing) list.animate().translationY(lineAt(at)).setDuration(700).setInterpolator(EASE).start()
+    }
+
+    /** Moves the lines by [dy] pixels, within the first and last line. */
+    fun scroll(dy: Float) {
+        if (lyrics == null || list.height == 0) return
+        if (!browsing) { browsing = true; list.animate().cancel() }
+        val last = list.getChildAt(list.childCount - 1)?.top ?: 0
+        list.translationY = (list.translationY + dy).coerceIn(anchor() - last, anchor())
+    }
+
+    /** Back to the line being sung. */
+    fun follow() {
+        if (!browsing) return
+        browsing = false
+        val l = lyrics ?: return
+        val to = if (l.synced) lineAt(current) else untimedAt(lastFraction)
+        list.animate().translationY(to).setDuration(700).setInterpolator(EASE).start()
+    }
+
+    private var lastFraction = 0f
+
+    private fun lineAt(i: Int) = anchor() - (list.getChildAt(i.coerceAtLeast(0))?.top ?: 0)
+
+    private fun untimedAt(fraction: Float): Float {
+        val travel = (list.height - height * 0.5f).coerceAtLeast(0f)
+        return anchor() - travel * fraction.coerceIn(0f, 1f)
     }
 
     private fun anchor() = height * 0.32f

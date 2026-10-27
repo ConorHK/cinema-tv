@@ -27,6 +27,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
+import com.danielportelabyrne.cinema.data.music.LyricKeys
 import com.danielportelabyrne.cinema.data.music.SeekKeys
 import com.danielportelabyrne.cinema.data.music.MusicTrack
 import com.danielportelabyrne.cinema.data.music.SubsonicClient
@@ -48,7 +49,8 @@ import java.util.concurrent.Executors
  * A phone casting to the TV (see [Cast]) plays here too: the phone keeps the queue and sends one track at a time.
  *
  * Remote: OK plays or pauses. Left and Right jump 10 s on a tap, change track on a double tap, and scan while held.
- * Up and Down show or hide lyrics. Rewind and fast forward seek, Back leaves.
+ * Up or Down shows lyrics. While they show, holding Up or Down scrolls them, a tap goes back to the line being sung,
+ * and a double tap hides them. Rewind and fast forward seek, Back leaves.
  */
 @OptIn(markerClass = [UnstableApi::class])
 class MusicPlayerActivity : Activity() {
@@ -84,6 +86,10 @@ class MusicPlayerActivity : Activity() {
 
     private val opened = SystemClock.elapsedRealtime()
     private val seekKeys = SeekKeys()
+    private val lyricKeys = LyricKeys()
+    /** While Up or Down is held over lyrics: which way, and the last frame's time (uptime). */
+    private var lyricScroll = 0
+    private var lyricScrollAt = 0L
     /** While Left or Right is held: which way, from where, since when (uptime), and whether to play after. */
     private var scanDirection = 0
     private var scanFrom = 0L
@@ -296,6 +302,8 @@ class MusicPlayerActivity : Activity() {
             val clock = now - opened
             backdrop.advance(clock)
             act(seekKeys.due(SystemClock.uptimeMillis()))
+            if (lyricsShown == true) lyric(lyricKeys.due(SystemClock.uptimeMillis()))
+            scrollLyrics()
             showStatus()
             updateProgress()
             Choreographer.getInstance().postFrameCallback(this)
@@ -354,6 +362,28 @@ class MusicPlayerActivity : Activity() {
         }
     }
 
+    private fun lyric(action: LyricKeys.Action?) {
+        when (action) {
+            LyricKeys.Action.Follow -> lyricsView.follow()
+            LyricKeys.Action.Hide -> {
+                lyricKeys.reset(); lyricScroll = 0
+                lyricsView.follow()
+                Music.lyricsOn = false; arrange()
+            }
+            is LyricKeys.Action.ScrollStart -> { lyricScroll = action.direction; lyricScrollAt = SystemClock.uptimeMillis() }
+            LyricKeys.Action.ScrollEnd -> lyricScroll = 0
+            null -> Unit
+        }
+    }
+
+    /** Up shows earlier lines, Down later ones. */
+    private fun scrollLyrics() {
+        if (lyricScroll == 0) return
+        val now = SystemClock.uptimeMillis()
+        lyricsView.scroll(-lyricScroll * Cinema.pxf(this, LYRIC_SCROLL) * (now - lyricScrollAt) / 1000f)
+        lyricScrollAt = now
+    }
+
     private fun clock(ms: Long): String { val s = ms / 1000; return "%d:%02d".format(s / 60, s % 60) }
 
     private fun keepAwake() {
@@ -375,7 +405,10 @@ class MusicPlayerActivity : Activity() {
             KeyEvent.KEYCODE_MEDIA_PREVIOUS -> if (event.repeatCount == 0) player.seekToPrevious()
             KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> player.seekTo(player.currentPosition + SEEK_MS)
             KeyEvent.KEYCODE_MEDIA_REWIND -> player.seekTo((player.currentPosition - SEEK_MS).coerceAtLeast(0))
-            KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN -> if (event.repeatCount == 0 && lyricsView.hasLyrics) { Music.lyricsOn = !Music.lyricsOn; arrange() }
+            KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN -> when {
+                lyricsShown == true -> lyric(lyricKeys.down(if (keyCode == KeyEvent.KEYCODE_DPAD_UP) -1 else 1, event.repeatCount, event.eventTime))
+                event.repeatCount == 0 && lyricsView.hasLyrics -> { Music.lyricsOn = true; arrange() }
+            }
             else -> return super.onKeyDown(keyCode, event)
         }
         return true
@@ -383,6 +416,7 @@ class MusicPlayerActivity : Activity() {
 
     override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
         if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) { act(seekKeys.up(event.eventTime)); return true }
+        if (keyCode == KeyEvent.KEYCODE_DPAD_UP || keyCode == KeyEvent.KEYCODE_DPAD_DOWN) { lyric(lyricKeys.up(event.eventTime)); return true }
         return super.onKeyUp(keyCode, event)
     }
 
@@ -416,6 +450,8 @@ class MusicPlayerActivity : Activity() {
         private const val GAP_BESIDE = 110
         private const val PAUSED_SCALE = 0.86f
         private const val SEEK_MS = 10_000L
+        /** Mock pixels a second. */
+        private const val LYRIC_SCROLL = 900
         private val EASE = PathInterpolator(0.3f, 0f, 0.2f, 1f)
 
         fun launch(activity: Activity, tracks: List<MusicTrack>, start: Int) {
