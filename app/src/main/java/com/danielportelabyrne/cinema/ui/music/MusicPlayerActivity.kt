@@ -15,6 +15,7 @@ import android.view.Gravity
 import android.view.KeyEvent
 import android.view.View
 import android.view.ViewOutlineProvider
+import android.view.ViewTreeObserver
 import android.view.WindowManager
 import android.view.animation.PathInterpolator
 import android.widget.FrameLayout
@@ -44,11 +45,12 @@ import java.util.concurrent.Executors
 
 /**
  * Full-screen now playing for a queue of tracks from the music server, laid out like Apple Music on a TV: the cover
- * large with its words and progress centred beneath, over the cover itself blurred into slowly turning colour.
+ * large with its words and progress beside it, over the cover itself blurred into slowly turning colour.
  * Built to sit on an OLED panel for hours: the background never stops moving. Paused, the cover sinks back and
  * the screen may sleep. Leaving stops the music.
  *
- * With lyrics, that column moves to the left and the lyrics fill the right.
+ * With lyrics, the words sit under the cover and the lyrics fill the other side.
+ * Each new track swaps the two sides, so nothing sits still long enough to burn in.
  *
  * Remote: OK plays or pauses. Left and Right jump 10 s on a tap, change track on a double tap, and scan while held.
  * Up and Down show or hide lyrics. Rewind and fast forward seek, Back leaves.
@@ -78,8 +80,12 @@ class MusicPlayerActivity : Activity() {
     private lateinit var statusText: TextView
     private var statusShown = ""
     private var lyricsShown: Boolean? = null
+    /** Cover on the right this track; [flipShown] is what the screen shows. */
+    private var flipped = false
+    private var flipShown = false
     private lateinit var elapsed: TextView
     private lateinit var remaining: TextView
+    private lateinit var times: LinearLayout
 
     private val opened = SystemClock.elapsedRealtime()
     private val seekKeys = SeekKeys()
@@ -146,7 +152,8 @@ class MusicPlayerActivity : Activity() {
             elevation = Cinema.pxf(context, 60)
             if (Build.VERSION.SDK_INT >= 28) { outlineSpotShadowColor = 0xFF000000.toInt(); outlineAmbientShadowColor = 0xFF000000.toInt() }
         }
-        left = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; clipChildren = false }
+        // Above the lyrics as the two swap sides.
+        left = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; clipChildren = false; elevation = 1f }
         lyricsView = LyricsView(this)
         lyricsColumn = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         status = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
@@ -162,7 +169,7 @@ class MusicPlayerActivity : Activity() {
         scrubber = WaveScrubberView(this, amplitudePx = 17f, wavelengthPx = 92f, thicknessPx = 22f)
         elapsed = Cinema.text(this, "", 25, white(0.55f), weight = 500)
         remaining = Cinema.text(this, "", 25, white(0.55f), weight = 500).apply { gravity = Gravity.END }
-        val times = LinearLayout(this).apply {
+        times = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             addView(elapsed, LinearLayout.LayoutParams(0, -2, 1f))
             addView(remaining, LinearLayout.LayoutParams(0, -2, 1f))
@@ -178,35 +185,86 @@ class MusicPlayerActivity : Activity() {
         arrange()
     }
 
-    /** The cover with the words centred under it: in the middle of the screen, or on the left beside the lyrics. */
+    /**
+     * With lyrics, the cover with the words under it beside the lyrics; without, the cover beside the words.
+     * [flipped] swaps the two halves. A swap slides each half to its new place; other changes fade in.
+     */
     private fun arrange() {
         val withLyrics = Music.lyricsOn && lyricsView.hasLyrics
-        if (withLyrics == lyricsShown) return
+        if (withLyrics == lyricsShown && flipped == flipShown) return
+        val sliding = withLyrics == lyricsShown
         lyricsShown = withLyrics
-        row.removeAllViews()
-        if (left.childCount == 0) {
-            left.addView(art, LinearLayout.LayoutParams(px(COVER), px(COVER)).apply { gravity = Gravity.CENTER_HORIZONTAL })
-            left.addView(words, LinearLayout.LayoutParams(px(COVER), -2).apply { topMargin = px(28) })
+        flipShown = flipped
+        val halves = halves()
+        val before = halves.map { it.left + it.translationX }
+        build()
+        if (!sliding) {
+            halves().forEach { it.translationX = 0f }
+            extras().forEach { it.animate().cancel(); it.alpha = 1f }
+            row.alpha = 0f
+            row.animate().alpha(1f).setDuration(400).start()
+            return
         }
-        row.addView(left, LinearLayout.LayoutParams(-2, -2))
-        // Playing or paused sits over the lyrics when they show, else centred over the title.
+        row.viewTreeObserver.addOnPreDrawListener(object : ViewTreeObserver.OnPreDrawListener {
+            override fun onPreDraw(): Boolean {
+                row.viewTreeObserver.removeOnPreDrawListener(this)
+                extras().forEach { it.animate().alpha(0f).setDuration(150).start() }
+                halves.forEachIndexed { k, v ->
+                    v.translationX = before[k] - v.left
+                    v.animate().translationX(0f).setDuration(900).setInterpolator(EASE).withEndAction {
+                        if (k == 0) extras().forEach { it.animate().alpha(1f).setDuration(400).start() }
+                    }.start()
+                }
+                return true
+            }
+        })
+    }
+
+    /** Hidden while the halves swap sides. */
+    private fun extras(): List<View> = listOf(status, scrubber, times, lyricsView)
+
+    /** The two blocks that swap sides, cover side first. */
+    private fun halves(): List<View> = if (lyricsShown == true) listOf(left, lyricsColumn) else listOf(art, words)
+
+    private fun build() {
+        row.removeAllViews()
+        left.removeAllViews()
+        (words.parent as? LinearLayout)?.removeView(words)
+        (art.parent as? LinearLayout)?.removeView(art)
+        // Playing or paused sits over the lyrics when they show, else over the title.
         (status.parent as? LinearLayout)?.removeView(status)
         lyricsColumn.removeAllViews()
-        if (withLyrics) {
+        val beside = lyricsShown != true
+        val align = if (beside) Gravity.START else Gravity.CENTER_HORIZONTAL
+        listOf(title, artist, album).forEach { it.gravity = align }
+        val (cover, other) = if (beside) {
+            words.addView(status, 0, LinearLayout.LayoutParams(-2, -2).apply { gravity = align; bottomMargin = px(14) })
+            art.layoutParams = LinearLayout.LayoutParams(px(COVER_BESIDE), px(COVER_BESIDE))
+            art to (words to LinearLayout.LayoutParams(px(WORDS_WIDTH), -2))
+        } else {
+            left.addView(art, LinearLayout.LayoutParams(px(COVER), px(COVER)).apply { gravity = Gravity.CENTER_HORIZONTAL })
+            left.addView(words, LinearLayout.LayoutParams(px(COVER), -2).apply { topMargin = px(28) })
             lyricsColumn.addView(status, LinearLayout.LayoutParams(-2, -2).apply { bottomMargin = px(18) })
             lyricsColumn.addView(lyricsView, LinearLayout.LayoutParams(-1, px(LYRICS_HEIGHT - 50)))
-            row.addView(lyricsColumn, LinearLayout.LayoutParams(px(LYRICS_WIDTH), -2).apply { marginStart = px(150) })
-        } else {
-            words.addView(status, 0, LinearLayout.LayoutParams(-2, -2).apply { gravity = Gravity.CENTER_HORIZONTAL; bottomMargin = px(14) })
+            left.layoutParams = LinearLayout.LayoutParams(-2, -2)
+            left to (lyricsColumn to LinearLayout.LayoutParams(px(LYRICS_WIDTH), -2))
         }
-        row.alpha = 0f
-        row.animate().alpha(1f).setDuration(400).start()
+        val gap = px(if (beside) GAP_BESIDE else GAP)
+        if (flipShown) {
+            row.addView(other.first, other.second)
+            row.addView(cover, (cover.layoutParams as LinearLayout.LayoutParams).apply { marginStart = gap })
+        } else {
+            row.addView(cover, (cover.layoutParams as LinearLayout.LayoutParams).apply { marginStart = 0 })
+            row.addView(other.first, other.second.apply { marginStart = gap })
+        }
     }
 
     private fun showTrack() {
         val i = player.currentMediaItemIndex
         val t = tracks.getOrNull(i) ?: return
         if (i != shownIndex) {
+            // Side changes once lyrics resolve: one move.
+            if (shownIndex != -1) flipped = !flipped
             shownIndex = i
             Music.cover(t.coverArt, 1000)?.let { key ->
                 images.load(key, maxWidth = px(COVER)) { b ->
@@ -365,6 +423,10 @@ class MusicPlayerActivity : Activity() {
         private const val COVER = 560
         private const val LYRICS_WIDTH = 900
         private const val LYRICS_HEIGHT = 900
+        private const val GAP = 150
+        private const val COVER_BESIDE = 640
+        private const val WORDS_WIDTH = 760
+        private const val GAP_BESIDE = 110
         private const val PAUSED_SCALE = 0.86f
         private const val SEEK_MS = 10_000L
         private val EASE = PathInterpolator(0.3f, 0f, 0.2f, 1f)
