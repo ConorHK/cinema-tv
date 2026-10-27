@@ -16,8 +16,8 @@ import com.danielportelabyrne.cinema.design.Cinema
  *
  * Focus is cream: the focused button fills cream with dark text and blooms a soft glow behind it, and every other
  * button rests as glass. The one exception is [Kind.TERRA] ("Queue download"), which keeps its terracotta gradient so
- * the page's call to action reads even when focus is elsewhere. The glow is drawn outside the view's bounds, so its
- * parents must not clip children.
+ * the page's call to action reads even when focus is elsewhere; focused, it takes the episode cards' cream ring instead.
+ * The glow and ring are drawn outside the view's bounds, so its parents must not clip children.
  */
 /** [small] is `.btn.sm`: 60 tall (the caller sets the height), 21 px text, tighter padding. */
 class CinemaButton(context: Context, kind: Kind, label: CharSequence, iconRes: Int? = null, private val small: Boolean = false) : LinearLayout(context) {
@@ -25,12 +25,13 @@ class CinemaButton(context: Context, kind: Kind, label: CharSequence, iconRes: I
 
     val label: TextView = Cinema.text(context, label, if (small) 21 else 25, Cinema.CREAM, weight = 600).apply { maxLines = 1 }
     private val icon: ImageView? = iconRes?.let { Cinema.icon(context, it, Cinema.CREAM) }
-    // Focus glow: a soft blurred bloom behind the button (no ring or outline, per the Cinema language).
+    // Focus glow: a soft blurred bloom behind the cream-lit buttons.
     private val halo = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         if (android.os.Build.VERSION.SDK_INT >= 28) maskFilter = android.graphics.BlurMaskFilter(Cinema.pxf(context, 22), android.graphics.BlurMaskFilter.Blur.NORMAL)
     }
     private val haloBox = RectF()
     private val haloWidth = Cinema.pxf(context, 4)
+    private val ring = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
 
     var kind: Kind = kind
         set(value) { field = value; restyle() }
@@ -78,6 +79,7 @@ class CinemaButton(context: Context, kind: Kind, label: CharSequence, iconRes: I
     }
 
     override fun draw(canvas: Canvas) {
+        if (isFocused && kind == Kind.TERRA) { super.draw(canvas); drawRing(canvas); return }
         if (isFocused && width > 0 && height > 0) {
             // Painted once per size and colour (Glows), not blurred live every frame.
             val hw = haloWidth.toInt()
@@ -85,5 +87,16 @@ class CinemaButton(context: Context, kind: Kind, label: CharSequence, iconRes: I
             canvas.drawBitmap(g.bitmap, (-hw - g.pad).toFloat(), (-hw - g.pad).toFloat(), null)
         }
         super.draw(canvas)
+    }
+
+    /** 4 px cream, then 5 px of saffron at 28% beyond it, as on episode cards. */
+    private fun drawRing(canvas: Canvas) {
+        val r = height / 2f
+        val o2 = Cinema.pxf(context, 4) + Cinema.pxf(context, 5) / 2f
+        ring.color = Cinema.alpha(Cinema.SAFFRON, 0.28f); ring.strokeWidth = Cinema.pxf(context, 5)
+        canvas.drawRoundRect(-o2, -o2, width + o2, height + o2, r + o2, r + o2, ring)
+        val o1 = Cinema.pxf(context, 2)
+        ring.color = Cinema.CREAM; ring.strokeWidth = Cinema.pxf(context, 4)
+        canvas.drawRoundRect(-o1, -o1, width + o1, height + o1, r + o1, r + o1, ring)
     }
 }

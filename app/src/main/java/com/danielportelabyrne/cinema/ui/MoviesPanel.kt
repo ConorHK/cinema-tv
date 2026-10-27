@@ -245,9 +245,8 @@ class MoviesPanel(
     private fun updateEdgeFade() {
         val f = edgeFade ?: return
         val overHero = heroSet && ::heroFrame.isInitialized && heroFrame.isAttachedToWindow && page.scrollY < heroFrame.height / 2
-        // Track lists do not scroll sideways.
-        val list = current is Dest.MusicAlbum || current === Dest.MusicQueue
-        val target = if (overHero || list) 0f else 1f
+        val music = railOf(current) === Dest.Music
+        val target = if (overHero || music) 0f else 1f
         if (f.alpha != target && f.tag != target) { f.tag = target; f.animate().alpha(target).setDuration(200).start() }
     }
 
@@ -1039,8 +1038,13 @@ class MoviesPanel(
             addView(Cinema.title(activity, title, 76, maxLines = 1), LinearLayout.LayoutParams(-2, -2).apply { topMargin = Cinema.px(activity, 18) })
         }
 
+    /** Under a header ending in buttons: room for their focus ring and glow. */
+    private val ringRoom: Int get() = Cinema.px(activity, 22)
+
     private fun musicButtons(vararg buttons: CinemaButton): LinearLayout = LinearLayout(activity).apply {
         orientation = LinearLayout.HORIZONTAL
+        // Focus rings and glows reach past the buttons.
+        clipChildren = false; clipToPadding = false
         buttons.forEachIndexed { i, b -> addView(b, LinearLayout.LayoutParams(-2, Cinema.px(activity, 60)).apply { if (i > 0) marginStart = Cinema.px(activity, 20) }) }
     }
 
@@ -1069,12 +1073,12 @@ class MoviesPanel(
     /** What plays after the current track. OK plays one now; hold OK moves it up or takes it out. */
     private fun buildMusicQueue() {
         musicNowPlaying(withQueue = false)
-        val head = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL; setPadding(pageStart, 0, pageEnd, 0) }
+        val head = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL; setPadding(pageStart, 0, pageEnd, ringRoom); clipChildren = false; clipToPadding = false }
         head.addView(musicHeader(listOf("Music", "Queue"), "Up next"))
         val clear = CinemaButton(activity, CinemaButton.Kind.GLASS, "Clear up next", null, small = true).apply { setOnClickListener { MusicSession.clearUpNext() } }
         head.addView(musicButtons(clear), LinearLayout.LayoutParams(-2, -2).apply { topMargin = Cinema.px(activity, 30) })
         content.addView(head, LinearLayout.LayoutParams(-1, -2))
-        val list = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL; setPadding(pageStart, Cinema.px(activity, 50), pageEnd, 0) }
+        val list = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL; setPadding(pageStart, Cinema.px(activity, 50) - ringRoom, pageEnd, 0) }
         content.addView(list, LinearLayout.LayoutParams(-1, -2))
         var shown: List<Any?> = emptyList()
         var shownNow = MusicSession.index
@@ -1084,19 +1088,65 @@ class MoviesPanel(
             val key = listOf<Any?>(now, MusicSession.casting) + tracks
             if (key == shown) return
             shown = key
-            // An edit keeps focus in place; a new track playing moves it to the top.
+            // An edit keeps focus on its line; a new track playing moves it to the top.
+            val advanced = now != shownNow
             val focusedAt = (0 until list.childCount).indexOfFirst { list.getChildAt(it).hasFocus() }
-                .let { if (it >= 0 && now != shownNow) 0 else it }
+                .let { if (it >= 0 && advanced) 0 else it }
             shownNow = now
-            list.removeAllViews()
-            val next = tracks.withIndex().drop(now + 1)
+            // Lines are kept per track and reordered, so a move slides the same line rather than redrawing the list.
+            val old = (0 until list.childCount).map { list.getChildAt(it) }
+            val focused = old.firstOrNull { it.hasFocus() }
+            val before = java.util.IdentityHashMap<Any, Int>()
+            old.forEach { v -> v.tag?.let { before[it] = v.top + v.translationY.toInt() } }
+            val reuse = java.util.IdentityHashMap<Any, View>()
+            old.forEach { v -> v.tag?.let { reuse[it] = v } }
+            val next = tracks.drop(now + 1)
             clear.visibility = if (next.isEmpty() || MusicSession.casting) View.GONE else View.VISIBLE
-            if (next.isEmpty()) { list.addView(note(if (MusicSession.casting) "The phone that is casting holds the queue." else "Nothing after this track.")); return }
-            next.forEachIndexed { n, (i, t) ->
-                val line = musicTrackLine("${n + 1}", t.title, t.artist, t.durationSec, { musicQueueEntry(i, t) }) { MusicSession.jump(i) }
+            if (next.isEmpty()) {
+                list.removeAllViews()
+                list.addView(note(if (MusicSession.casting) "The phone that is casting holds the queue." else "Nothing after this track."))
+                return
+            }
+            val lines = next.mapIndexed { n, t ->
+                val line = reuse[t] ?: musicTrackLine("", t.title, t.artist, t.durationSec, { musicQueueEntry(t) }) { MusicSession.jump(MusicSession.indexOf(t)) }
+                    .also { it.tag = t }
+                // A line that moves takes its new number once it lands.
+                if (before[t] == null) number(line, n)
+                line.animate().cancel()
+                line
+            }
+            // Detach without dropping focus where the focused line stays.
+            list.descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
+            list.removeAllViews()
+            lines.forEachIndexed { n, line ->
                 list.addView(line, LinearLayout.LayoutParams(-1, Cinema.px(activity, TRACK_HEIGHT)).apply { if (n > 0) topMargin = Cinema.px(activity, TRACK_GAP) })
             }
-            if (focusedAt >= 0) list.getChildAt(focusedAt.coerceAtMost(list.childCount - 1))?.requestFocus()
+            list.descendantFocusability = ViewGroup.FOCUS_AFTER_DESCENDANTS
+            when {
+                focusedAt < 0 -> Unit
+                advanced || focused == null || focused.parent == null -> list.getChildAt(focusedAt.coerceAtMost(list.childCount - 1))?.requestFocus()
+                else -> focused.requestFocus()
+            }
+            if (before.isEmpty()) return
+            list.viewTreeObserver.addOnPreDrawListener(object : android.view.ViewTreeObserver.OnPreDrawListener {
+                override fun onPreDraw(): Boolean {
+                    list.viewTreeObserver.removeOnPreDrawListener(this)
+                    lines.forEach { v ->
+                        val n = lines.indexOf(v)
+                        val was = before[v.tag]
+                        if (was == null) { v.alpha = 0f; v.animate().alpha(1f).setDuration(300).setStartDelay(200).start(); return@forEach }
+                        val dy = (was - v.top).toFloat()
+                        if (dy == 0f) { number(v, n); return@forEach }
+                        v.translationY = dy
+                        // The line rising to the top passes over the ones it pushes down.
+                        val rising = dy > trackStep
+                        v.translationZ = if (rising) 6f else 0f
+                        v.animate().translationY(0f).translationZ(0f).setDuration(if (rising) 520 else 420)
+                            .setInterpolator(com.danielportelabyrne.cinema.design.Motion.SETTLE).withEndAction { number(v, n) }.start()
+                    }
+                    return true
+                }
+            })
         }
         fill()
         list.getChildAt(0)?.takeIf { it.isFocusable }?.let { musicFocus(it) } ?: musicFocus(clear)
@@ -1106,12 +1156,17 @@ class MoviesPanel(
         MusicSession.listen(listener)
     }
 
+    private fun number(line: View, n: Int) { ((line as ViewGroup).getChildAt(0) as TextView).text = "${n + 1}" }
+
     /** Hold OK on a queued track. */
-    private fun musicQueueEntry(i: Int, t: com.danielportelabyrne.cinema.data.music.MusicTrack) {
+    private fun musicQueueEntry(t: com.danielportelabyrne.cinema.data.music.MusicTrack) {
         if (MusicSession.casting) return
+        val i = MusicSession.indexOf(t)
+        // After the sheet has gone, so the move is seen.
+        fun later(run: () -> Unit) = ui.postDelayed({ run() }, 260)
         infoSheet.show("QUEUE", t.title, t.artist, emptyList(), null, listOfNotNull(
-            SheetAction("Play next", primary = true) { MusicSession.moveNext(i) }.takeIf { i > MusicSession.index + 1 },
-            SheetAction("Remove from queue") { MusicSession.remove(i) }))
+            SheetAction("Play next", primary = true) { later { MusicSession.moveNext(MusicSession.indexOf(t)) } }.takeIf { i > MusicSession.index + 1 },
+            SheetAction("Remove from queue") { later { MusicSession.remove(MusicSession.indexOf(t)) } }))
     }
 
     /** Hold OK on music: play it next, add it to the queue, or play it now. */
@@ -1139,7 +1194,7 @@ class MoviesPanel(
     private fun buildMusic(gen: Int) {
         val host = musicClient?.config?.baseUrl?.substringAfter("://") ?: return
         musicNowPlaying()
-        val head = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL; setPadding(pageStart, 0, pageEnd, 0) }
+        val head = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL; setPadding(pageStart, 0, pageEnd, ringRoom); clipChildren = false; clipToPadding = false }
         head.addView(musicHeader(listOf("Music", host), "Your music"))
         val shuffle = CinemaButton(activity, CinemaButton.Kind.TERRA, "Shuffle all", R.drawable.ic_cin_play, small = true)
         shuffle.setOnClickListener { musicLoad(gen, { it.randomSongs(100) }) { songs -> if (songs == null) Toast.makeText(activity, "Couldn't reach the music server", Toast.LENGTH_SHORT).show() else playMusic(songs) } }
@@ -1213,7 +1268,7 @@ class MoviesPanel(
             content.removeView(wait)
             if (found == null) { content.addView(note("Couldn't reach the music server just now").apply { setPadding(pageStart, 0, 0, 0) }); return@musicLoad }
             val (album, tracks) = found
-            val head = LinearLayout(activity).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.BOTTOM; setPadding(pageStart, 0, pageEnd, 0) }
+            val head = LinearLayout(activity).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.BOTTOM; setPadding(pageStart, 0, pageEnd, ringRoom); clipChildren = false; clipToPadding = false }
             val cover = ImageView(activity).apply {
                 scaleType = ImageView.ScaleType.CENTER_CROP; setBackgroundColor(Cinema.alpha(Cinema.CREAM, 0.06f))
                 outlineProvider = object : ViewOutlineProvider() { override fun getOutline(v: View, o: Outline) { o.setRoundRect(0, 0, v.width, v.height, Cinema.pxf(activity, 18)) } }
@@ -1221,7 +1276,7 @@ class MoviesPanel(
             }
             head.addView(cover, LinearLayout.LayoutParams(Cinema.px(activity, 360), Cinema.px(activity, 360)))
             com.danielportelabyrne.cinema.ui.music.Music.cover(album.coverArt, 600)?.let { key -> images.load(key, maxWidth = Cinema.px(activity, 360), tag = pageTag) { b -> if (gen == generation) cover.setImageBitmap(b) } }
-            val side = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
+            val side = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL; clipChildren = false }
             val minutes = album.durationSec?.let { "${(it + 30) / 60} min" }
             side.addView(musicHeader(listOfNotNull("Album", album.year?.toString(), "${tracks.size} tracks", minutes), album.name))
             album.artist?.let { side.addView(Cinema.text(activity, it, 30, Cinema.MUTED).apply { maxLines = 1; ellipsize = TextUtils.TruncateAt.END }, LinearLayout.LayoutParams(-2, -2).apply { topMargin = Cinema.px(activity, 12) }) }
@@ -1237,7 +1292,7 @@ class MoviesPanel(
             content.addView(head, LinearLayout.LayoutParams(-1, -2))
             musicFocus(play)
 
-            val list = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL; setPadding(pageStart, Cinema.px(activity, 50), pageEnd, 0) }
+            val list = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL; setPadding(pageStart, Cinema.px(activity, 50) - ringRoom, pageEnd, 0) }
             val discs = tracks.mapNotNull { it.disc }.toSet().size > 1
             tracks.forEachIndexed { i, t ->
                 val number = listOfNotNull(t.disc?.takeIf { discs }, t.number).joinToString("-").ifEmpty { "${i + 1}" }
@@ -1279,7 +1334,7 @@ class MoviesPanel(
     /** One artist: their albums. */
     private fun buildMusicArtist(id: String, name: String, gen: Int) {
         musicNowPlaying()
-        val head = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL; setPadding(pageStart, 0, pageEnd, 0) }
+        val head = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL; setPadding(pageStart, 0, pageEnd, ringRoom); clipChildren = false; clipToPadding = false }
         head.addView(musicHeader(listOf("Artist"), name))
         content.addView(head, LinearLayout.LayoutParams(-1, -2))
         val row = row("Albums", null)

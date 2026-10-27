@@ -87,8 +87,8 @@ object MusicSession : Cast.Link {
         if (list.isEmpty() || Music.client == null) return
         val p = ensure()
         leaveCast()
-        tracks.clear(); tracks += list
-        p.setMediaItems(list.map { item(it) }, start.coerceIn(0, list.lastIndex), 0L)
+        tracks.clear(); tracks += list.map { it.copy() }
+        p.setMediaItems(tracks.map { item(it) }, start.coerceIn(0, list.lastIndex), 0L)
         p.prepare(); p.play()
         changed()
     }
@@ -97,18 +97,24 @@ object MusicSession : Cast.Link {
     fun playNext(list: List<MusicTrack>) {
         if (!active || casting) return play(list, 0)
         val at = index + 1
-        tracks.addAll(at, list)
-        player?.addMediaItems(at, list.map { item(it) })
+        // Copies: the queue tells entries apart by identity.
+        val added = list.map { it.copy() }
+        tracks.addAll(at, added)
+        player?.addMediaItems(at, added.map { item(it) })
         changed()
     }
 
     /** At the end of the queue; starts playing when nothing is. */
     fun enqueue(list: List<MusicTrack>) {
         if (!active || casting) return play(list, 0)
-        tracks += list
-        player?.addMediaItems(list.map { item(it) })
+        val added = list.map { it.copy() }
+        tracks += added
+        player?.addMediaItems(added.map { item(it) })
         changed()
     }
+
+    /** Where [t] is in the queue, by identity: the same song can be queued twice. */
+    fun indexOf(t: MusicTrack): Int = tracks.indexOfFirst { it === t }
 
     /** Plays queue entry [i] from its start. */
     fun jump(i: Int) {

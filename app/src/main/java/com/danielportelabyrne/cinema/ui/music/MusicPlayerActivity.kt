@@ -3,12 +3,16 @@ package com.danielportelabyrne.cinema.ui.music
 import android.app.Activity
 import android.content.Intent
 import android.graphics.Outline
+import android.graphics.Typeface
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.text.SpannableString
+import android.text.Spanned
 import android.text.TextUtils
+import android.text.style.StyleSpan
 import android.view.Choreographer
 import android.view.Gravity
 import android.view.KeyEvent
@@ -296,7 +300,12 @@ class MusicPlayerActivity : Activity() {
 
     private fun showUpNext() {
         val next = tracks.getOrNull(player.currentMediaItemIndex + 1)
-        upNext.text = next?.let { n -> "Up next · " + listOfNotNull(n.title, n.artist).joinToString(" · ") }.orEmpty()
+        upNext.text = next?.let { n ->
+            val label = "Up next: "
+            SpannableString(label + listOfNotNull(n.title, n.artist).joinToString(" · ")).apply {
+                setSpan(StyleSpan(Typeface.BOLD), 0, label.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            }
+        } ?: ""
     }
 
     /** Playing, the cover sits full size; paused, it sinks back a little. */
