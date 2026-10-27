@@ -1,7 +1,6 @@
 package com.danielportelabyrne.cinema.ui.music
 
 import android.content.Context
-import android.content.Intent
 import android.media.AudioManager
 import android.os.Handler
 import android.os.Looper
@@ -11,14 +10,13 @@ import com.danielportelabyrne.cinema.data.music.cast.CastItem
 import com.danielportelabyrne.cinema.data.music.cast.CastSnapshot
 import com.danielportelabyrne.cinema.data.music.cast.Transport
 import com.danielportelabyrne.cinema.data.music.cast.Upnp
-import com.danielportelabyrne.cinema.platform.Log
 
 /**
- * The renderer a phone casts to (Symfonium, say), between the network and the now-playing screen. It keeps what the
- * controller asked for, opens the screen to play it, and passes the screen's progress back.
+ * The renderer a phone casts to (Symfonium, say), between the network and [MusicSession]. It keeps what the
+ * controller asked for and passes the player's progress back.
  */
 object Cast : CastControl {
-    /** The now-playing screen; called on the main thread. */
+    /** The player; called on the main thread. */
     interface Link {
         fun castLoad(current: CastItem, next: CastItem?)
         fun castNext(next: CastItem?)
@@ -38,11 +36,9 @@ object Cast : CastControl {
     @Volatile private var transport = Transport.NO_MEDIA
     @Volatile private var positionMs = 0L
     @Volatile private var durationMs = 0L
-    private var link: Link? = null
-    /** Play once the screen opens. */
-    private var playOnOpen = false
+    private lateinit var link: Link
 
-    fun init(context: Context) { app = context.applicationContext }
+    fun init(context: Context, player: Link) { app = context.applicationContext; link = player }
 
     // --- From the network -------------------------------------------------------------------------------
 
@@ -51,42 +47,27 @@ object Cast : CastControl {
     override fun load(item: CastItem) {
         current = item; next = null; positionMs = 0; durationMs = item.durationMs ?: 0
         if (transport == Transport.NO_MEDIA) transport = Transport.STOPPED
-        ui.post { link?.castLoad(item, null) }
+        ui.post { link.castLoad(item, null) }
         changed()
     }
 
     override fun loadNext(item: CastItem?) {
         next = item
-        ui.post { link?.castNext(item) }
+        ui.post { link.castNext(item) }
         changed()
     }
 
-    override fun play() { ui.post {
-        val l = link
-        if (l != null) { l.castPlay(); return@post }
-        playOnOpen = true
-        transport = Transport.TRANSITIONING
-        changed()
-        // Needs "display over other apps" when Cinema is closed.
-        runCatching {
-            app.startActivity(Intent(app, MusicPlayerActivity::class.java).putExtra(MusicPlayerActivity.EXTRA_CAST, true)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-        }.onFailure { Log.w(TAG, "could not open now playing", it) }
-    } }
+    override fun play() { ui.post { link.castPlay() } }
 
-    override fun pause() { ui.post { link?.castPause() } }
+    override fun pause() { ui.post { link.castPause() } }
 
-    override fun stop() { ui.post {
-        playOnOpen = false
-        val l = link
-        if (l != null) l.castStop() else { transport = Transport.STOPPED; positionMs = 0; changed() }
-    } }
+    override fun stop() { ui.post { link.castStop() } }
 
-    override fun seek(positionMs: Long) { ui.post { link?.castSeek(positionMs) } }
+    override fun seek(positionMs: Long) { ui.post { link.castSeek(positionMs) } }
 
-    override fun next() { ui.post { link?.castSkip(1) } }
+    override fun next() { ui.post { link.castSkip(1) } }
 
-    override fun previous() { ui.post { link?.castSkip(-1) } }
+    override fun previous() { ui.post { link.castSkip(-1) } }
 
     override fun setVolume(percent: Int) {
         val max = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
@@ -108,24 +89,15 @@ object Cast : CastControl {
 
     private fun changed() { host?.changed(Upnp.AV_TRANSPORT) }
 
-    // --- From the screen (main thread) ------------------------------------------------------------------
+    // --- From the player (main thread) ------------------------------------------------------------------
 
-    /** The screen opened; it plays what was cast if it was opened for that. */
-    fun attach(l: Link, forCast: Boolean) {
-        link = l
-        val c = current ?: return
-        if (!forCast) return
-        l.castLoad(c, next)
-        if (playOnOpen) { playOnOpen = false; l.castPlay() }
+    /** The player stopped or moved on to local music. */
+    fun stopped() {
+        transport = Transport.STOPPED; positionMs = 0
+        changed()
     }
 
-    fun detach(l: Link, wasCasting: Boolean) {
-        if (link !== l) return
-        link = null
-        if (wasCasting) { transport = Transport.STOPPED; positionMs = 0; changed() }
-    }
-
-    /** Each frame while casting. */
+    /** Twice a second while casting. */
     fun report(t: Transport, position: Long, duration: Long) {
         positionMs = position
         if (duration > 0) durationMs = duration
@@ -141,6 +113,4 @@ object Cast : CastControl {
         durationMs = now.durationMs ?: 0
         changed()
     }
-
-    private const val TAG = "CinemaCast"
 }

@@ -3,7 +3,6 @@ package com.danielportelabyrne.cinema.ui.music
 import android.app.Activity
 import android.content.Intent
 import android.graphics.Outline
-import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -22,23 +21,15 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
-import androidx.media3.common.AudioAttributes
+import androidx.annotation.OptIn
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
-import androidx.media3.common.MediaMetadata
-import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.datasource.DefaultHttpDataSource
-import androidx.media3.datasource.ResolvingDataSource
-import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import com.danielportelabyrne.cinema.data.music.SeekKeys
 import com.danielportelabyrne.cinema.data.music.MusicTrack
 import com.danielportelabyrne.cinema.data.music.SubsonicClient
-import com.danielportelabyrne.cinema.data.music.cast.CastItem
-import com.danielportelabyrne.cinema.data.music.cast.Transport
 import com.danielportelabyrne.cinema.R
 import com.danielportelabyrne.cinema.design.Cinema
 import com.danielportelabyrne.cinema.design.cinema.WaveScrubberView
@@ -49,7 +40,7 @@ import java.util.concurrent.Executors
  * Full-screen now playing for a queue of tracks from the music server, laid out like Apple Music on a TV: the cover
  * large with its words and progress beside it, over the cover itself blurred into slowly turning colour.
  * Built to sit on an OLED panel for hours: the background never stops moving. Paused, the cover sinks back and
- * the screen may sleep. Leaving stops the music.
+ * the screen may sleep. Back returns to the library and the music plays on ([MusicSession]).
  *
  * With lyrics, the words sit under the cover and the lyrics fill the other side.
  * Each new track swaps the two sides, so nothing sits still long enough to burn in.
@@ -59,13 +50,10 @@ import java.util.concurrent.Executors
  * Remote: OK plays or pauses. Left and Right jump 10 s on a tap, change track on a double tap, and scan while held.
  * Up and Down show or hide lyrics. Rewind and fast forward seek, Back leaves.
  */
-@UnstableApi
+@OptIn(markerClass = [UnstableApi::class])
 class MusicPlayerActivity : Activity() {
     private var client: SubsonicClient? = null
-    private var tracks: MutableList<MusicTrack> = mutableListOf()
-    /** While a phone casts: what it sent, one per entry in [tracks]. */
-    private var castItems: MutableList<CastItem> = mutableListOf()
-    private var casting = false
+    private val tracks get() = MusicSession.tracks
     private lateinit var player: ExoPlayer
     private val ui = Handler(Looper.getMainLooper())
     private val worker = Executors.newSingleThreadExecutor()
@@ -103,107 +91,36 @@ class MusicPlayerActivity : Activity() {
     private var scanResume = false
     private var shownIndex = -1
     private var shownTrack: MusicTrack? = null
-    private var scrobbled = -1
-    private var failures = 0
+
+    private val events = object : Player.Listener {
+        override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) = showTrack()
+        override fun onIsPlayingChanged(isPlaying: Boolean) { keepAwake(); settleArt() }
+        override fun onPlaybackStateChanged(state: Int) = keepAwake()
+    }
+
+    /** The music stopped, or three tracks failed. */
+    private val sessionChanged: () -> Unit = {
+        if (!MusicSession.active) finish()
+        else if (MusicSession.stuck) { album.text = "Couldn't play this track."; keepAwake() }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val forCast = intent.getBooleanExtra(EXTRA_CAST, false)
-        val queue = Music.queued
         client = Music.client
-        if (!forCast && (queue == null || client == null || queue.tracks.isEmpty())) { finish(); return }
+        val p = MusicSession.player
+        if (p == null || !MusicSession.active) { finish(); return }
+        player = p
         buildViews()
-
-        val renderers = DefaultRenderersFactory(this).setEnableDecoderFallback(true)
-            .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
-        // Cast addresses come signed by the phone.
-        val signing = ResolvingDataSource.Factory(DefaultHttpDataSource.Factory().setAllowCrossProtocolRedirects(true)) { spec ->
-            val c = client
-            val uri = spec.uri.toString()
-            if (c != null && !casting && uri.startsWith(c.config.baseUrl)) spec.withUri(Uri.parse(c.signed(uri.removePrefix(c.config.baseUrl)))) else spec
-        }
-        player = ExoPlayer.Builder(this, renderers).setMediaSourceFactory(DefaultMediaSourceFactory(signing)).build()
-        player.setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(), true)
-        player.addListener(object : Player.Listener {
-            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) { showTrack(); reportCast() }
-            override fun onIsPlayingChanged(isPlaying: Boolean) { keepAwake(); settleArt() }
-            override fun onPlaybackStateChanged(state: Int) { if (state == Player.STATE_READY) failures = 0; keepAwake() }
-            override fun onPlayerError(error: PlaybackException) { skipBroken(error) }
-        })
-        if (queue != null && !forCast) {
-            tracks = queue.tracks.toMutableList()
-            player.setMediaItems(tracks.map { item(it) }, queue.start.coerceIn(0, tracks.lastIndex), 0L)
-            player.prepare(); player.play()
-            showTrack()
-        }
-        Cast.attach(castLink, forCast)
+        player.addListener(events)
+        MusicSession.listen(sessionChanged)
+        showTrack(); keepAwake(); settleArt()
         Choreographer.getInstance().postFrameCallback(tick)
     }
 
-    private fun item(t: MusicTrack): MediaItem {
-        val c = client!!
-        return MediaItem.Builder()
-            .setUri(c.config.baseUrl + c.streamPath(t.id)).setMediaId(t.id)
-            .setMediaMetadata(MediaMetadata.Builder().setTitle(t.title).setArtist(t.artist).setAlbumTitle(t.album).build())
-            .build()
-    }
-
-    // --- Casting --------------------------------------------------------------------------------------
-
-    private val castLink = object : Cast.Link {
-        override fun castLoad(current: CastItem, next: CastItem?) {
-            casting = true
-            castItems = listOfNotNull(current, next).toMutableList()
-            tracks = castItems.map { trackOf(it) }.toMutableList()
-            player.setMediaItems(castItems.map { MediaItem.fromUri(it.uri) }, 0, 0L)
-            player.prepare()
-            showTrack()
-        }
-
-        override fun castNext(next: CastItem?) {
-            if (!casting) return
-            val keep = player.currentMediaItemIndex + 1
-            if (keep < castItems.size) {
-                player.removeMediaItems(keep, castItems.size)
-                castItems.subList(keep, castItems.size).clear()
-                tracks.subList(keep, tracks.size).clear()
-            }
-            if (next != null) { castItems += next; tracks += trackOf(next); player.addMediaItem(MediaItem.fromUri(next.uri)) }
-        }
-
-        override fun castPlay() {
-            if (player.playbackState == Player.STATE_ENDED) player.seekTo(0L)
-            if (player.playbackState == Player.STATE_IDLE) player.prepare()
-            player.play()
-        }
-
-        override fun castPause() = player.pause()
-        override fun castStop() = finish()
-        override fun castSeek(positionMs: Long) = player.seekTo(positionMs)
-        override fun castSkip(direction: Int) = act(SeekKeys.Action.Skip(direction))
-    }
-
-    /** A cast track as the screen shows it; the server's id when it streams from the same server, for lyrics. */
-    private fun trackOf(item: CastItem): MusicTrack {
-        val base = client?.config?.baseUrl
-        val id = if (base != null && item.uri.startsWith(base)) Uri.parse(item.uri).getQueryParameter("id") else null
-        return MusicTrack(
-            id.orEmpty(), item.title ?: "Unknown track", item.artist, item.album, null, null, null,
-            item.durationMs?.let { (it / 1000).toInt() }, null, null
-        )
-    }
-
-    private fun reportCast() {
-        if (!casting) return
-        val i = player.currentMediaItemIndex
-        castItems.getOrNull(i)?.let { Cast.showing(it, castItems.getOrNull(i + 1)) }
-    }
-
-    private fun castTransport(): Transport = when {
-        player.playbackState == Player.STATE_IDLE || player.playbackState == Player.STATE_ENDED -> Transport.STOPPED
-        player.playbackState == Player.STATE_BUFFERING && player.playWhenReady -> Transport.TRANSITIONING
-        player.playWhenReady || scanDirection != 0 -> Transport.PLAYING
-        else -> Transport.PAUSED
+    override fun onStart() {
+        super.onStart()
+        showing = true
+        MusicSession.hold(HOLD, true)
     }
 
     // --- Layout ---------------------------------------------------------------------------------------
@@ -342,7 +259,7 @@ class MusicPlayerActivity : Activity() {
             if (shownTrack != null) flipped = !flipped
             shownTrack = t
             val c = client
-            val cover = if (casting) castItems.getOrNull(i)?.artUri else Music.cover(t.coverArt, 1000)
+            val cover = if (MusicSession.casting) MusicSession.castItems.getOrNull(i)?.artUri else Music.cover(t.coverArt, 1000)
             cover?.let { key ->
                 images.load(key, maxWidth = px(COVER)) { b ->
                     if (shownTrack !== t) return@load
@@ -353,8 +270,6 @@ class MusicPlayerActivity : Activity() {
                     }
                 }
             }
-            // The phone scrobbles what it casts.
-            if (c != null && !casting) worker.execute { c.scrobble(t.id, submission = false) }
             lyricsView.set(null)
             worker.execute {
                 val l = c?.let { runCatching { it.lyrics(t) }.getOrNull() }
@@ -394,13 +309,7 @@ class MusicPlayerActivity : Activity() {
         lyricsView.position(pos, scrubber.progress)
         elapsed.text = clock(pos)
         remaining.text = if (len > 0) "-" + clock((len - pos).coerceAtLeast(0)) else ""
-        if (casting) { Cast.report(castTransport(), pos, len); return }
-        // Counts as played at half the track or four minutes, the usual scrobble rule.
-        val c = client ?: return
-        if (scanDirection == 0 && len > 0 && scrobbled != shownIndex && (pos > len / 2 || pos > 4 * 60_000)) {
-            scrobbled = shownIndex
-            tracks.getOrNull(shownIndex)?.let { t -> worker.execute { c.scrobble(t.id, submission = true) } }
-        }
+        MusicSession.scanning = scanDirection != 0
     }
 
     private fun showStatus() {
@@ -429,8 +338,7 @@ class MusicPlayerActivity : Activity() {
     private fun act(action: SeekKeys.Action?) {
         when (action) {
             is SeekKeys.Action.Jump -> player.seekTo((player.currentPosition + action.direction * SeekKeys.JUMP_MS).coerceIn(0, (length() - 1_000).coerceAtLeast(0)))
-            is SeekKeys.Action.Skip -> if (action.direction > 0) { if (player.hasNextMediaItem()) player.seekToNextMediaItem() }
-                else if (player.hasPreviousMediaItem()) player.seekToPreviousMediaItem() else player.seekTo(0)
+            is SeekKeys.Action.Skip -> MusicSession.skip(action.direction)
             is SeekKeys.Action.ScanStart -> {
                 scanDirection = action.direction; scanFrom = player.currentPosition; scanSince = SystemClock.uptimeMillis()
                 scanResume = player.playWhenReady
@@ -451,14 +359,6 @@ class MusicPlayerActivity : Activity() {
     private fun keepAwake() {
         if (player.playWhenReady && player.playbackState != Player.STATE_ENDED) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-    }
-
-    /** A track that will not play is skipped; three in a row stops trying. A casting phone decides for itself. */
-    private fun skipBroken(error: PlaybackException) {
-        android.util.Log.w(TAG, "track failed: ${error.errorCodeName}")
-        failures++
-        if (!casting && failures < 3 && player.hasNextMediaItem()) { player.seekToNextMediaItem(); player.prepare(); player.play() }
-        else { album.text = "Couldn't play this track."; keepAwake() }
     }
 
     // --- Remote ---------------------------------------------------------------------------------------
@@ -488,21 +388,25 @@ class MusicPlayerActivity : Activity() {
 
     override fun onStop() {
         super.onStop()
-        if (::player.isInitialized) player.pause()
+        showing = false
+        MusicSession.hold(HOLD, false)
     }
 
     override fun onDestroy() {
-        Cast.detach(castLink, casting)
         Choreographer.getInstance().removeFrameCallback(tick)
-        if (::player.isInitialized) player.release()
+        if (::player.isInitialized) player.removeListener(events)
+        MusicSession.unlisten(sessionChanged)
+        MusicSession.scanning = false
         worker.shutdown()
         super.onDestroy()
     }
 
     companion object {
-        private const val TAG = "CinemaMusic"
-        /** Opened to play what a phone cast. */
-        const val EXTRA_CAST = "cast"
+        private const val HOLD = "now playing"
+
+        /** On screen now. */
+        var showing = false
+            private set
         private const val COVER = 560
         private const val LYRICS_WIDTH = 900
         private const val LYRICS_HEIGHT = 900
@@ -516,8 +420,13 @@ class MusicPlayerActivity : Activity() {
 
         fun launch(activity: Activity, tracks: List<MusicTrack>, start: Int) {
             if (tracks.isEmpty() || Music.client == null) return
-            Music.queued = Music.Queue(tracks, start)
-            activity.startActivity(Intent(activity, MusicPlayerActivity::class.java))
+            MusicSession.play(tracks, start)
+            open(activity)
+        }
+
+        /** Shows what is playing. */
+        fun open(activity: Activity) {
+            if (MusicSession.active) activity.startActivity(Intent(activity, MusicPlayerActivity::class.java))
         }
     }
 }

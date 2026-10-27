@@ -59,6 +59,8 @@ import com.danielportelabyrne.cinema.data.movies.RequestDiagnostic
 import com.danielportelabyrne.cinema.data.movies.RequestPipelineApi
 import com.danielportelabyrne.cinema.data.movies.RequestOutcome
 import com.danielportelabyrne.cinema.ui.room.SheetAction
+import com.danielportelabyrne.cinema.ui.music.MusicSession
+import com.danielportelabyrne.cinema.ui.music.NowPlayingBar
 import com.danielportelabyrne.cinema.data.movies.SonarrClient
 import com.danielportelabyrne.cinema.data.movies.SeerrRequest
 import com.danielportelabyrne.cinema.data.movies.Stage
@@ -273,6 +275,7 @@ class MoviesPanel(
         styleTabs()
         if (reuse) reopen() else build()
         loadStorage()
+        syncMusicHold()
     }
 
     /** The Home page as it was left, back at the top with the featured title focused; nothing is rebuilt or refetched. */
@@ -305,6 +308,19 @@ class MoviesPanel(
         if (voiceActive) voice?.cancel(); closeStreamLoading(); closeDetail(restoreFocus = false); overlay.visibility = View.GONE; ui.removeCallbacks(heroTick)
         // Home is kept for a quick reopen, so its rows keep loading; any other page is dropped.
         if (current !== Dest.Home || trail.isNotEmpty()) { generation++; builtAt = 0L }
+        syncMusicHold()
+    }
+
+    /** Cinema went behind another screen, or came back. */
+    fun onHostStop() { hostStarted = false; syncMusicHold() }
+    fun onHostStart() { hostStarted = true; syncMusicHold() }
+
+    private var hostStarted = false
+
+    /** Music plays on while its pages are on screen. */
+    private fun syncMusicHold() {
+        val music = current === Dest.Music || current is Dest.MusicAlbum || current is Dest.MusicArtist
+        MusicSession.hold("library", hostStarted && isVisible && music)
     }
     fun close() {
         navigationFocusListener?.let { if (top.viewTreeObserver.isAlive) top.viewTreeObserver.removeOnGlobalFocusChangeListener(it) }
@@ -847,6 +863,7 @@ class MoviesPanel(
             is Dest.MusicArtist -> buildMusicArtist(d.id, d.name, gen)
             Dest.Settings -> Unit
         }
+        syncMusicHold()
         Perf.took("movies.build (main thread)", Perf.now() - buildStart)
     }
 
@@ -1021,9 +1038,38 @@ class MoviesPanel(
         buttons.forEachIndexed { i, b -> addView(b, LinearLayout.LayoutParams(-2, Cinema.px(activity, 60)).apply { if (i > 0) marginStart = Cinema.px(activity, 20) }) }
     }
 
+    /** What is playing, above a Music page; Up from the page reaches it. */
+    private fun musicNowPlaying() {
+        val bar = NowPlayingBar(activity)
+        bar.onFocus = { f -> if (f) page.smoothScrollTo(0, 0) }
+        content.addView(bar, LinearLayout.LayoutParams(-1, -2).apply { marginStart = pageStart; marginEnd = pageEnd; bottomMargin = Cinema.px(activity, 44) })
+    }
+
+    /** Hold OK on music: play it next, add it to the queue, or play it now. */
+    private fun musicQueue(title: String, subtitle: String?, tracks: List<com.danielportelabyrne.cinema.data.music.MusicTrack>) {
+        if (tracks.isEmpty()) return
+        val playing = MusicSession.active && !MusicSession.casting
+        infoSheet.show("QUEUE", title, subtitle, listOf(if (playing) "Add to what is playing, or play it now." else "Nothing is playing yet."), null, listOfNotNull(
+            SheetAction("Play next", primary = true) {
+                MusicSession.playNext(tracks); Toast.makeText(activity, "Plays next", Toast.LENGTH_SHORT).show()
+            }.takeIf { playing },
+            SheetAction("Add to queue") {
+                MusicSession.enqueue(tracks); Toast.makeText(activity, "Added to queue", Toast.LENGTH_SHORT).show()
+            }.takeIf { playing },
+            SheetAction("Play now", primary = !playing) { playMusic(tracks) }))
+    }
+
+    private fun musicQueueAlbum(id: String, name: String, artist: String?) {
+        musicLoad(generation, { it.album(id)?.second }) { tracks ->
+            if (tracks == null) Toast.makeText(activity, "Couldn't reach the music server", Toast.LENGTH_SHORT).show()
+            else musicQueue(name, artist, tracks)
+        }
+    }
+
     /** Shuffle all, then the server's album lists and its artists. */
     private fun buildMusic(gen: Int) {
         val host = musicClient?.config?.baseUrl?.substringAfter("://") ?: return
+        musicNowPlaying()
         val head = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL; setPadding(pageStart, 0, pageEnd, 0) }
         head.addView(musicHeader(listOf("Music", host), "Your music"))
         val shuffle = CinemaButton(activity, CinemaButton.Kind.TERRA, "Shuffle all", R.drawable.ic_cin_play, small = true)
@@ -1059,6 +1105,7 @@ class MoviesPanel(
                     card.placeholder(a.name)
                     card.onFocus = { lit -> if (lit) reveal(card) }
                     card.setOnClickListener { go(Dest.MusicAlbum(a.id), remember = true) }
+                    card.setOnLongClickListener { musicQueueAlbum(a.id, a.name, a.artist); true }
                     row.inner.addView(card, cardParams(i))
                     val load: () -> Unit = { com.danielportelabyrne.cinema.ui.music.Music.cover(a.coverArt, 300)?.let { key ->
                         images.loadShadedPoster(key, emptyMap(), Cinema.px(activity, 260), tag) { b -> if (gen == generation) card.setShadedPoster(b) } } }
@@ -1090,6 +1137,7 @@ class MoviesPanel(
 
     /** One album: its cover, Play and Shuffle, and the tracks in order. */
     private fun buildMusicAlbum(id: String, gen: Int) {
+        musicNowPlaying()
         val wait = note("Loading the album…").apply { setPadding(pageStart, 0, 0, 0) }
         content.addView(wait)
         musicLoad(gen, { it.album(id) }) { found ->
@@ -1108,7 +1156,10 @@ class MoviesPanel(
             val minutes = album.durationSec?.let { "${(it + 30) / 60} min" }
             side.addView(musicHeader(listOfNotNull("Album", album.year?.toString(), "${tracks.size} tracks", minutes), album.name))
             album.artist?.let { side.addView(Cinema.text(activity, it, 30, Cinema.MUTED).apply { maxLines = 1; ellipsize = TextUtils.TruncateAt.END }, LinearLayout.LayoutParams(-2, -2).apply { topMargin = Cinema.px(activity, 12) }) }
-            val play = CinemaButton(activity, CinemaButton.Kind.TERRA, "Play", R.drawable.ic_cin_play, small = true).apply { setOnClickListener { playMusic(tracks) } }
+            val play = CinemaButton(activity, CinemaButton.Kind.TERRA, "Play", R.drawable.ic_cin_play, small = true).apply {
+                setOnClickListener { playMusic(tracks) }
+                setOnLongClickListener { musicQueue(album.name, album.artist, tracks); true }
+            }
             val shuffle = CinemaButton(activity, CinemaButton.Kind.GLASS, "Shuffle", null, small = true).apply { setOnClickListener { playMusic(tracks.shuffled()) } }
             val more = album.artistId?.let { artistId -> CinemaButton(activity, CinemaButton.Kind.GLASS, "More by ${album.artist ?: "this artist"}", null, small = true).apply {
                 setOnClickListener { go(Dest.MusicArtist(artistId, album.artist ?: album.name), remember = true) } } }
@@ -1121,15 +1172,15 @@ class MoviesPanel(
             val discs = tracks.mapNotNull { it.disc }.toSet().size > 1
             tracks.forEachIndexed { i, t ->
                 val number = listOfNotNull(t.disc?.takeIf { discs }, t.number).joinToString("-").ifEmpty { "${i + 1}" }
-                list.addView(musicTrackLine(number, t.title, t.artist?.takeIf { it != album.artist }, t.durationSec) { playMusic(tracks, i) },
+                list.addView(musicTrackLine(number, t.title, t.artist?.takeIf { it != album.artist }, t.durationSec, { musicQueue(t.title, t.artist, listOf(t)) }) { playMusic(tracks, i) },
                     LinearLayout.LayoutParams(-1, Cinema.px(activity, TRACK_HEIGHT)).apply { if (i > 0) topMargin = Cinema.px(activity, TRACK_GAP) })
             }
             content.addView(list, LinearLayout.LayoutParams(-1, -2))
         }
     }
 
-    /** "3   Song title   Guest artist   4:05": a track that plays from here when chosen. */
-    private fun musicTrackLine(number: String, title: String, artist: String?, seconds: Int?, onSelect: () -> Unit): View {
+    /** "3   Song title   Guest artist   4:05": a track that plays from here when chosen; hold OK to queue it. */
+    private fun musicTrackLine(number: String, title: String, artist: String?, seconds: Int?, onHold: () -> Unit, onSelect: () -> Unit): View {
         val line = LinearLayout(activity).apply {
             orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; isFocusable = true; isClickable = true
             setPadding(Cinema.px(activity, 30), 0, Cinema.px(activity, 30), 0)
@@ -1152,11 +1203,13 @@ class MoviesPanel(
             if (f) FastFocus.reveal(line, page, trackStep * 3, trackStep * 3, pageStart)
         }
         line.setOnClickListener { onSelect() }
+        line.setOnLongClickListener { onHold(); true }
         return line
     }
 
     /** One artist: their albums. */
     private fun buildMusicArtist(id: String, name: String, gen: Int) {
+        musicNowPlaying()
         val head = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL; setPadding(pageStart, 0, pageEnd, 0) }
         head.addView(musicHeader(listOf("Artist"), name))
         content.addView(head, LinearLayout.LayoutParams(-1, -2))
@@ -1173,6 +1226,7 @@ class MoviesPanel(
                 card.placeholder(a.name)
                 card.onFocus = { lit -> if (lit) reveal(card) }
                 card.setOnClickListener { go(Dest.MusicAlbum(a.id), remember = true) }
+                card.setOnLongClickListener { musicQueueAlbum(a.id, a.name, a.artist); true }
                 row.inner.addView(card, cardParams(i))
                 com.danielportelabyrne.cinema.ui.music.Music.cover(a.coverArt, 300)?.let { key ->
                     images.loadShadedPoster(key, emptyMap(), Cinema.px(activity, 260), pageTag) { b -> if (gen == generation) card.setShadedPoster(b) } }

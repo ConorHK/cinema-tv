@@ -170,6 +170,16 @@ class CinemaActivity : AppCompatActivity() {
         intent?.getStringExtra("debug_cinema_dest")?.let { moviesPanel.debugGo(it) }
     }
 
+    override fun onStart() {
+        super.onStart()
+        if (::moviesPanel.isInitialized) moviesPanel.onHostStart()
+    }
+
+    override fun onStop() {
+        if (::moviesPanel.isInitialized) moviesPanel.onHostStop()
+        super.onStop()
+    }
+
     override fun onResume() {
         super.onResume()
         if (::moviesPanel.isInitialized) moviesPanel.onResume()

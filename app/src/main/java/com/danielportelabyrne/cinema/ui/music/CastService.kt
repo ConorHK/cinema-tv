@@ -41,7 +41,6 @@ class CastService : Service() {
 
         val settings = CinemaSettings(AndroidPlatform(this))
         Music.use(settings.subsonic.takeIf { settings.isOn(Integration.MUSIC) })
-        Cast.init(this)
         multicast = applicationContext.getSystemService(WifiManager::class.java)?.createMulticastLock("cinema-cast")?.apply {
             setReferenceCounted(false); acquire()
         }

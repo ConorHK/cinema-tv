@@ -1,13 +1,12 @@
 package com.danielportelabyrne.cinema.ui.music
 
-import com.danielportelabyrne.cinema.data.music.MusicTrack
 import com.danielportelabyrne.cinema.data.music.SubsonicClient
 import com.danielportelabyrne.cinema.data.music.SubsonicConfig
 import com.danielportelabyrne.cinema.ui.RemoteImages
 
 /**
- * The music server for the whole process: one client per saved config, and the queue handed to the now-playing
- * screen. Cover art is keyed `subsonic:/rest/getCoverArt?...` and signed only when fetched.
+ * The music server for the whole process: one client per saved config. Cover art is keyed
+ * `subsonic:/rest/getCoverArt?...` and signed only when fetched.
  */
 object Music {
     @Volatile var client: SubsonicClient? = null
@@ -28,11 +27,6 @@ object Music {
         val c = client ?: return null
         return RemoteImages.MUSIC + ":" + c.coverPath(coverArt ?: return null, size)
     }
-
-    /** What the now-playing screen opens with. */
-    class Queue(val tracks: List<MusicTrack>, val start: Int)
-
-    @Volatile var queued: Queue? = null
 
     /** Show lyrics when a track has them; Up or Down on now playing flips it. */
     @Volatile var lyricsOn = true
