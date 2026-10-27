@@ -83,6 +83,7 @@ class MusicPlayerActivity : Activity() {
     private lateinit var elapsed: TextView
     private lateinit var remaining: TextView
     private lateinit var times: LinearLayout
+    private lateinit var upNext: TextView
 
     private val opened = SystemClock.elapsedRealtime()
     private val seekKeys = SeekKeys()
@@ -104,10 +105,13 @@ class MusicPlayerActivity : Activity() {
         override fun onPlaybackStateChanged(state: Int) = keepAwake()
     }
 
-    /** The music stopped, or three tracks failed. */
+    /** The music stopped, the queue changed, or three tracks failed. */
     private val sessionChanged: () -> Unit = {
         if (!MusicSession.active) finish()
-        else if (MusicSession.stuck) { album.text = "Couldn't play this track."; keepAwake() }
+        else {
+            showUpNext()
+            if (MusicSession.stuck) { album.text = "Couldn't play this track."; keepAwake() }
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -177,6 +181,8 @@ class MusicPlayerActivity : Activity() {
         // The wave keeps room for its playhead's glow; pull it out so the wave's ends line up with the text.
         words.addView(scrubber, LinearLayout.LayoutParams(-1, px(86)).apply { topMargin = px(20); marginStart = -px(46); marginEnd = -px(46) })
         words.addView(times, LinearLayout.LayoutParams(-1, -2).apply { topMargin = px(2) })
+        upNext = Cinema.text(this, "", 24, white(0.5f), weight = 500).apply { maxLines = 1; ellipsize = TextUtils.TruncateAt.END }
+        words.addView(upNext, LinearLayout.LayoutParams(-1, -2).apply { topMargin = px(22) })
         root.addView(row, FrameLayout.LayoutParams(-2, -2, Gravity.CENTER))
         setContentView(root)
         arrange()
@@ -218,7 +224,7 @@ class MusicPlayerActivity : Activity() {
     }
 
     /** Hidden while the halves swap sides. */
-    private fun extras(): List<View> = listOf(status, scrubber, times, lyricsView)
+    private fun extras(): List<View> = listOf(status, scrubber, times, upNext, lyricsView)
 
     /** The two blocks that swap sides, cover side first. */
     private fun halves(): List<View> = if (lyricsShown == true) listOf(left, lyricsColumn) else listOf(art, words)
@@ -233,7 +239,7 @@ class MusicPlayerActivity : Activity() {
         lyricsColumn.removeAllViews()
         val beside = lyricsShown != true
         val align = if (beside) Gravity.START else Gravity.CENTER_HORIZONTAL
-        listOf(title, artist, album).forEach { it.gravity = align }
+        listOf(title, artist, album, upNext).forEach { it.gravity = align }
         val (cover, other) = if (beside) {
             words.addView(status, 0, LinearLayout.LayoutParams(-2, -2).apply { gravity = align; bottomMargin = px(14) })
             art.layoutParams = LinearLayout.LayoutParams(px(COVER_BESIDE), px(COVER_BESIDE))
@@ -285,6 +291,12 @@ class MusicPlayerActivity : Activity() {
         title.text = t.title
         artist.text = t.artist.orEmpty()
         album.text = t.album.orEmpty()
+        showUpNext()
+    }
+
+    private fun showUpNext() {
+        val next = tracks.getOrNull(player.currentMediaItemIndex + 1)
+        upNext.text = next?.let { n -> "Up next · " + listOfNotNull(n.title, n.artist).joinToString(" · ") }.orEmpty()
     }
 
     /** Playing, the cover sits full size; paused, it sinks back a little. */

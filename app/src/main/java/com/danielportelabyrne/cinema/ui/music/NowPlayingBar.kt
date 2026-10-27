@@ -34,6 +34,8 @@ class NowPlayingBar(private val activity: Activity) : LinearLayout(activity) {
     private var shown: MusicTrack? = null
     private val refresh: () -> Unit = { update() }
     var onFocus: ((Boolean) -> Unit)? = null
+    /** Told when the bar appears or goes. */
+    var onShown: ((Boolean) -> Unit)? = null
 
     init {
         orientation = HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
@@ -74,7 +76,8 @@ class NowPlayingBar(private val activity: Activity) : LinearLayout(activity) {
 
     private fun update() {
         val t = MusicSession.current
-        visibility = if (t == null) GONE else VISIBLE
+        val v = if (t == null) GONE else VISIBLE
+        if (v != visibility) { visibility = v; onShown?.invoke(t != null) }
         if (t == null) { shown = null; return }
         val playing = MusicSession.player?.playWhenReady == true
         state.text = if (playing) "Now playing" else "Paused"

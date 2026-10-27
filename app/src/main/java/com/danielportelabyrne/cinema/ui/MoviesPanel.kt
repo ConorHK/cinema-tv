@@ -158,6 +158,7 @@ class MoviesPanel(
         object Music : Dest()
         class MusicAlbum(val id: String) : Dest()
         class MusicArtist(val id: String, val name: String) : Dest()
+        object MusicQueue : Dest()
         /** Not a page: the rail's gear opens Settings over Cinema. */
         object Settings : Dest()
     }
@@ -166,7 +167,7 @@ class MoviesPanel(
     private fun railOf(d: Dest): Dest = when (d) {
         is Dest.OnService, is Dest.InGenre -> Dest.Home
         is Dest.LbPerson, is Dest.LbListPage, Dest.LbSearch, Dest.LbFollow -> Dest.Letterboxd
-        is Dest.MusicAlbum, is Dest.MusicArtist -> Dest.Music
+        is Dest.MusicAlbum, is Dest.MusicArtist, Dest.MusicQueue -> Dest.Music
         else -> d
     }
 
@@ -244,7 +245,9 @@ class MoviesPanel(
     private fun updateEdgeFade() {
         val f = edgeFade ?: return
         val overHero = heroSet && ::heroFrame.isInitialized && heroFrame.isAttachedToWindow && page.scrollY < heroFrame.height / 2
-        val target = if (overHero) 0f else 1f
+        // Track lists do not scroll sideways.
+        val list = current is Dest.MusicAlbum || current === Dest.MusicQueue
+        val target = if (overHero || list) 0f else 1f
         if (f.alpha != target && f.tag != target) { f.tag = target; f.animate().alpha(target).setDuration(200).start() }
     }
 
@@ -319,7 +322,7 @@ class MoviesPanel(
 
     /** Music plays on while its pages are on screen. */
     private fun syncMusicHold() {
-        val music = current === Dest.Music || current is Dest.MusicAlbum || current is Dest.MusicArtist
+        val music = current === Dest.Music || current is Dest.MusicAlbum || current is Dest.MusicArtist || current === Dest.MusicQueue
         MusicSession.hold("library", hostStarted && isVisible && music)
     }
     fun close() {
@@ -466,6 +469,7 @@ class MoviesPanel(
             "library" -> Dest.Library; "downloads" -> Dest.Downloads
             "letterboxd" -> Dest.Letterboxd; "lb-search" -> Dest.LbSearch; "lb-follow" -> Dest.LbFollow
             "music" -> Dest.Music
+            "music-queue" -> Dest.MusicQueue
             else -> when {
                 name.startsWith("music-album:") -> Dest.MusicAlbum(name.removePrefix("music-album:"))
                 name.startsWith("lb-person:") -> Dest.LbPerson(name.removePrefix("lb-person:"))
@@ -833,6 +837,7 @@ class MoviesPanel(
         searchPending?.let { ui.removeCallbacks(it) }
         ui.removeCallbacks(heroTick)
         content.removeAllViews(); page.scrollTo(0, 0); heroSet = false; pending.clear(); lastContentFocus = null
+        queueListener?.let { MusicSession.unlisten(it) }; queueListener = null
         // The rail floats over the page, so nothing is reserved for a top bar. A page that opens on a featured title
         // starts at the very top, so its picture runs up to the screen edge; the others start a little way down.
         val opensOnHero = current === Dest.Home || current === Dest.Films || current === Dest.Series || current === Dest.Docs || current === Dest.Library
@@ -861,6 +866,7 @@ class MoviesPanel(
             Dest.Music -> buildMusic(gen)
             is Dest.MusicAlbum -> buildMusicAlbum(d.id, gen)
             is Dest.MusicArtist -> buildMusicArtist(d.id, d.name, gen)
+            Dest.MusicQueue -> buildMusicQueue()
             Dest.Settings -> Unit
         }
         syncMusicHold()
@@ -1038,11 +1044,74 @@ class MoviesPanel(
         buttons.forEachIndexed { i, b -> addView(b, LinearLayout.LayoutParams(-2, Cinema.px(activity, 60)).apply { if (i > 0) marginStart = Cinema.px(activity, 20) }) }
     }
 
-    /** What is playing, above a Music page; Up from the page reaches it. */
-    private fun musicNowPlaying() {
+    /** What is playing and a way to the queue, above a Music page; Up from the page reaches it. */
+    private fun musicNowPlaying(withQueue: Boolean = true) {
+        val row = LinearLayout(activity).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         val bar = NowPlayingBar(activity)
         bar.onFocus = { f -> if (f) page.smoothScrollTo(0, 0) }
-        content.addView(bar, LinearLayout.LayoutParams(-1, -2).apply { marginStart = pageStart; marginEnd = pageEnd; bottomMargin = Cinema.px(activity, 44) })
+        row.addView(bar, LinearLayout.LayoutParams(0, -2, 1f))
+        if (withQueue) {
+            val queue = CinemaButton(activity, CinemaButton.Kind.GLASS, "Queue", null, small = true).apply {
+                setOnClickListener { go(Dest.MusicQueue, remember = true) }
+                setOnFocusChangeListener { _, f -> if (f) page.smoothScrollTo(0, 0) }
+            }
+            row.addView(queue, LinearLayout.LayoutParams(-2, Cinema.px(activity, 60)).apply { marginStart = Cinema.px(activity, 24) })
+        }
+        fun shown(on: Boolean) { row.visibility = if (on) View.VISIBLE else View.GONE }
+        bar.onShown = ::shown
+        shown(MusicSession.active)
+        content.addView(row, LinearLayout.LayoutParams(-1, -2).apply { marginStart = pageStart; marginEnd = pageEnd; bottomMargin = Cinema.px(activity, 44) })
+    }
+
+    /** Refreshes the Queue page while it shows. */
+    private var queueListener: (() -> Unit)? = null
+
+    /** What plays after the current track. OK plays one now; hold OK moves it up or takes it out. */
+    private fun buildMusicQueue() {
+        musicNowPlaying(withQueue = false)
+        val head = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL; setPadding(pageStart, 0, pageEnd, 0) }
+        head.addView(musicHeader(listOf("Music", "Queue"), "Up next"))
+        val clear = CinemaButton(activity, CinemaButton.Kind.GLASS, "Clear up next", null, small = true).apply { setOnClickListener { MusicSession.clearUpNext() } }
+        head.addView(musicButtons(clear), LinearLayout.LayoutParams(-2, -2).apply { topMargin = Cinema.px(activity, 30) })
+        content.addView(head, LinearLayout.LayoutParams(-1, -2))
+        val list = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL; setPadding(pageStart, Cinema.px(activity, 50), pageEnd, 0) }
+        content.addView(list, LinearLayout.LayoutParams(-1, -2))
+        var shown: List<Any?> = emptyList()
+        var shownNow = MusicSession.index
+        fun fill() {
+            val now = MusicSession.index
+            val tracks = MusicSession.tracks
+            val key = listOf<Any?>(now, MusicSession.casting) + tracks
+            if (key == shown) return
+            shown = key
+            // An edit keeps focus in place; a new track playing moves it to the top.
+            val focusedAt = (0 until list.childCount).indexOfFirst { list.getChildAt(it).hasFocus() }
+                .let { if (it >= 0 && now != shownNow) 0 else it }
+            shownNow = now
+            list.removeAllViews()
+            val next = tracks.withIndex().drop(now + 1)
+            clear.visibility = if (next.isEmpty() || MusicSession.casting) View.GONE else View.VISIBLE
+            if (next.isEmpty()) { list.addView(note(if (MusicSession.casting) "The phone that is casting holds the queue." else "Nothing after this track.")); return }
+            next.forEachIndexed { n, (i, t) ->
+                val line = musicTrackLine("${n + 1}", t.title, t.artist, t.durationSec, { musicQueueEntry(i, t) }) { MusicSession.jump(i) }
+                list.addView(line, LinearLayout.LayoutParams(-1, Cinema.px(activity, TRACK_HEIGHT)).apply { if (n > 0) topMargin = Cinema.px(activity, TRACK_GAP) })
+            }
+            if (focusedAt >= 0) list.getChildAt(focusedAt.coerceAtMost(list.childCount - 1))?.requestFocus()
+        }
+        fill()
+        list.getChildAt(0)?.takeIf { it.isFocusable }?.let { musicFocus(it) } ?: musicFocus(clear)
+        val gen = generation
+        val listener: () -> Unit = { if (gen == generation) fill() }
+        queueListener = listener
+        MusicSession.listen(listener)
+    }
+
+    /** Hold OK on a queued track. */
+    private fun musicQueueEntry(i: Int, t: com.danielportelabyrne.cinema.data.music.MusicTrack) {
+        if (MusicSession.casting) return
+        infoSheet.show("QUEUE", t.title, t.artist, emptyList(), null, listOfNotNull(
+            SheetAction("Play next", primary = true) { MusicSession.moveNext(i) }.takeIf { i > MusicSession.index + 1 },
+            SheetAction("Remove from queue") { MusicSession.remove(i) }))
     }
 
     /** Hold OK on music: play it next, add it to the queue, or play it now. */

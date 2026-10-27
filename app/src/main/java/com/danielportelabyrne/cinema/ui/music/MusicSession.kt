@@ -110,6 +110,39 @@ object MusicSession : Cast.Link {
         changed()
     }
 
+    /** Plays queue entry [i] from its start. */
+    fun jump(i: Int) {
+        val p = player ?: return
+        if (i !in tracks.indices) return
+        p.seekTo(i, 0L); p.play()
+    }
+
+    /** Takes entry [i] out; the playing one stays. */
+    fun remove(i: Int) {
+        if (casting || i !in tracks.indices || i == index) return
+        tracks.removeAt(i)
+        player?.removeMediaItem(i)
+        changed()
+    }
+
+    /** Moves entry [i] to just after the playing one. */
+    fun moveNext(i: Int) {
+        val to = index + 1
+        if (casting || i !in tracks.indices || i <= index || i == to) return
+        tracks.add(to, tracks.removeAt(i))
+        player?.moveMediaItem(i, to)
+        changed()
+    }
+
+    /** Drops everything after the playing one. */
+    fun clearUpNext() {
+        val from = index + 1
+        if (casting || from >= tracks.size) return
+        player?.removeMediaItems(from, tracks.size)
+        tracks.subList(from, tracks.size).clear()
+        changed()
+    }
+
     fun stop() {
         ui.removeCallbacks(release)
         ui.removeCallbacks(tick)
