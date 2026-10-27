@@ -1131,6 +1131,10 @@ class MoviesPanel(
             list.viewTreeObserver.addOnPreDrawListener(object : android.view.ViewTreeObserver.OnPreDrawListener {
                 override fun onPreDraw(): Boolean {
                     list.viewTreeObserver.removeOnPreDrawListener(this)
+                    val ease = com.danielportelabyrne.cinema.design.Motion.SETTLE
+                    val moves = lines.mapNotNull { v -> before[v.tag]?.let { it - v.top } }
+                    // How far the list as a whole moved; a line moving further is jumping over others.
+                    val shift = moves.groupingBy { it }.eachCount().maxByOrNull { it.value }?.key ?: 0
                     lines.forEach { v ->
                         val n = lines.indexOf(v)
                         val was = before[v.tag]
@@ -1139,10 +1143,16 @@ class MoviesPanel(
                         if (dy == 0f) { number(v, n); return@forEach }
                         v.translationY = dy
                         // The line rising to the top passes over the ones it pushes down.
-                        val rising = dy > trackStep
+                        val rising = dy > shift + trackStep / 2
                         v.translationZ = if (rising) 6f else 0f
                         v.animate().translationY(0f).translationZ(0f).setDuration(if (rising) 520 else 420)
-                            .setInterpolator(com.danielportelabyrne.cinema.design.Motion.SETTLE).withEndAction { number(v, n) }.start()
+                            .setInterpolator(ease).withEndAction { number(v, n) }.start()
+                    }
+                    // Lines that left (played, or removed) go up and out with the list instead of vanishing.
+                    old.filter { it.tag != null && it !in lines }.forEach { v ->
+                        list.overlay.add(v)
+                        v.animate().translationY(-shift.toFloat()).alpha(0f).setDuration(420).setInterpolator(ease)
+                            .withEndAction { list.overlay.remove(v); v.translationY = 0f; v.alpha = 1f }.start()
                     }
                     return true
                 }

@@ -16,12 +16,14 @@ import com.danielportelabyrne.cinema.design.Cinema
  *
  * Focus is cream: the focused button fills cream with dark text and blooms a soft glow behind it, and every other
  * button rests as glass. The one exception is [Kind.TERRA] ("Queue download"), which keeps its terracotta gradient so
- * the page's call to action reads even when focus is elsewhere; focused, it takes the episode cards' cream ring instead.
+ * the page's call to action reads even when focus is elsewhere; focused, it takes a ring in its own warmer shade.
  * The glow and ring are drawn outside the view's bounds, so its parents must not clip children.
  */
 /** [small] is `.btn.sm`: 60 tall (the caller sets the height), 21 px text, tighter padding. */
 class CinemaButton(context: Context, kind: Kind, label: CharSequence, iconRes: Int? = null, private val small: Boolean = false) : LinearLayout(context) {
     enum class Kind { PRIMARY, TERRA, GLASS, DANGER }
+
+    private companion object { const val RING = 0xFFF5A97E.toInt() }
 
     val label: TextView = Cinema.text(context, label, if (small) 21 else 25, Cinema.CREAM, weight = 600).apply { maxLines = 1 }
     private val icon: ImageView? = iconRes?.let { Cinema.icon(context, it, Cinema.CREAM) }
@@ -89,14 +91,14 @@ class CinemaButton(context: Context, kind: Kind, label: CharSequence, iconRes: I
         super.draw(canvas)
     }
 
-    /** 4 px cream, then 5 px of saffron at 28% beyond it, as on episode cards. */
+    /** 4 px of light terracotta, then 5 px of terracotta at 30% beyond it. */
     private fun drawRing(canvas: Canvas) {
         val r = height / 2f
         val o2 = Cinema.pxf(context, 4) + Cinema.pxf(context, 5) / 2f
-        ring.color = Cinema.alpha(Cinema.SAFFRON, 0.28f); ring.strokeWidth = Cinema.pxf(context, 5)
+        ring.color = Cinema.alpha(Cinema.TERRA, 0.3f); ring.strokeWidth = Cinema.pxf(context, 5)
         canvas.drawRoundRect(-o2, -o2, width + o2, height + o2, r + o2, r + o2, ring)
         val o1 = Cinema.pxf(context, 2)
-        ring.color = Cinema.CREAM; ring.strokeWidth = Cinema.pxf(context, 4)
+        ring.color = RING; ring.strokeWidth = Cinema.pxf(context, 4)
         canvas.drawRoundRect(-o1, -o1, width + o1, height + o1, r + o1, r + o1, ring)
     }
 }
