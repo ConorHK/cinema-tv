@@ -69,7 +69,8 @@ class CinemaActivity : AppCompatActivity() {
             seerrSheet = SeerrSignInSheet(this, infoSheet) { done -> overCinema { setup.signInToSeerr(done) } },
             infoSheet = infoSheet,
             libraryOrder = { settings.libraryOrder },
-            onOpenSettings = { moviesPanel.hide(); setup.openSettings() }
+            onOpenSettings = { moviesPanel.hide(); setup.openSettings() },
+            integrationOn = { settings.isOn(it) }
         )
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {

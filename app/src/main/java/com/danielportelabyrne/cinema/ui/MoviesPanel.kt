@@ -89,6 +89,7 @@ import com.danielportelabyrne.cinema.design.cinema.QwertyKeyboard
 import com.danielportelabyrne.cinema.design.cinema.VoiceListeningView
 import com.danielportelabyrne.cinema.data.search.Qwerty
 import com.danielportelabyrne.cinema.data.search.VoiceState
+import com.danielportelabyrne.cinema.data.settings.Integration
 import com.danielportelabyrne.cinema.data.settings.LibraryOrder
 import com.danielportelabyrne.cinema.design.cinema.RibbonView
 import com.danielportelabyrne.cinema.design.cinema.StripeDrawable
@@ -120,7 +121,9 @@ class MoviesPanel(
     private val infoSheet: com.danielportelabyrne.cinema.ui.room.InfoSheet,
     private val libraryOrder: () -> LibraryOrder = { LibraryOrder.RECENT },
     /** Opens Settings (over Cinema) from the gear at the foot of the rail. */
-    private val onOpenSettings: () -> Unit = {}
+    private val onOpenSettings: () -> Unit = {},
+    /** Whether an integration is switched on in Settings; one that is off has no rail item or title page section. */
+    private val integrationOn: (Integration) -> Boolean = { true }
 ) {
     /** Where the page is: one of the tabs, or a service or genre opened from Home, or search. */
     private sealed class Dest {
@@ -246,6 +249,7 @@ class MoviesPanel(
         showAmbient()
         com.danielportelabyrne.cinema.design.Motion.enter(overlay, null, 0f)
         if (!topBuilt) { buildTop(); topBuilt = true }
+        syncIntegrations()
         val reuse = current === Dest.Home && trail.isEmpty() && content.childCount > 0 && heroSet &&
             Perf.now() - builtAt < REUSE_MS && jellyfin.isConnected == builtConnected
         trail.clear(); current = Dest.Home
@@ -478,6 +482,17 @@ class MoviesPanel(
         styleTabs()
     }
 
+    /** The integration a rail item belongs to; null for the items that are always there. */
+    private fun integrationOf(dest: Dest): Integration? = if (dest === Dest.Letterboxd) Integration.LETTERBOXD else null
+
+    /** Shows the rail items of integrations that are on and hides the rest. */
+    private fun syncIntegrations() {
+        tabs.forEach { (item, dest) -> integrationOf(dest)?.let { item.visibility = if (integrationOn(it)) View.VISIBLE else View.GONE } }
+    }
+
+    /** The rail items on screen, top to bottom: Up and Down step through these. */
+    private fun shownTabs(): List<LinearLayout> = tabs.keys.filter { it.visibility == View.VISIBLE }
+
     private fun navigationItem(label: String, icon: Int, dest: Dest): LinearLayout {
         val row = RailItem(activity).apply {
             id = View.generateViewId()
@@ -503,8 +518,8 @@ class MoviesPanel(
         row.setOnKeyListener { _, code, event ->
             when {
                 code == android.view.KeyEvent.KEYCODE_DPAD_LEFT -> true
-                code == android.view.KeyEvent.KEYCODE_DPAD_UP && row === tabs.keys.first() -> true
-                code == android.view.KeyEvent.KEYCODE_DPAD_DOWN && row === tabs.keys.last() -> true
+                code == android.view.KeyEvent.KEYCODE_DPAD_UP && row === shownTabs().first() -> true
+                code == android.view.KeyEvent.KEYCODE_DPAD_DOWN && row === shownTabs().last() -> true
                 code == android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> {
                     if (event.action == android.view.KeyEvent.ACTION_DOWN) focusContent()
                     true
@@ -523,7 +538,7 @@ class MoviesPanel(
     fun navigate(focused: View, direction: Int): Boolean {
         if (streamLoading != null || voiceActive) return true
         if (!isWithin(focused, top)) return false
-        val items = tabs.keys.toList()
+        val items = shownTabs()
         val at = items.indexOfFirst { isWithin(focused, it) }
         when (direction) {
             View.FOCUS_RIGHT -> focusContent()
@@ -1443,6 +1458,7 @@ class MoviesPanel(
      * Letterboxd does not know.
      */
     private fun lbFilmSection(column: LinearLayout, e: Entry) {
+        if (!integrationOn(Integration.LETTERBOXD)) return
         val t = e.title
         val slugHint = t.key.removePrefix("lb:").takeIf { t.key.startsWith("lb:") }
         val tmdb = t.tmdbId?.toLongOrNull()

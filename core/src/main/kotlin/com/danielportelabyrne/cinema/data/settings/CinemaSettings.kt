@@ -58,6 +58,10 @@ class CinemaSettings(platform: Platform) {
         secrets.put("manual_${arr.name}_key", value?.apiKey)
     }
 
+    fun isOn(integration: Integration): Boolean = prefs.getBoolean(integration.key, integration.onByDefault)
+
+    fun setOn(integration: Integration, on: Boolean) { prefs.edit().putBoolean(integration.key, on).apply() }
+
     /** Download-client passwords, per client address. Only used when Sonarr/Radarr hide theirs. */
     fun clientPassword(baseUrl: String): String? = secrets.get("client_pw_$baseUrl")
     fun setClientPassword(baseUrl: String, password: String?) = secrets.put("client_pw_$baseUrl", password)

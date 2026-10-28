@@ -26,6 +26,7 @@ import com.danielportelabyrne.cinema.data.movies.QueueClient
 import com.danielportelabyrne.cinema.data.movies.SeerrClient
 import com.danielportelabyrne.cinema.data.settings.Arr
 import com.danielportelabyrne.cinema.data.settings.CinemaSettings
+import com.danielportelabyrne.cinema.data.settings.Integration
 import com.danielportelabyrne.cinema.data.settings.LibraryOrder
 import com.danielportelabyrne.cinema.data.settings.ManualArr
 import com.danielportelabyrne.cinema.design.Cinema
@@ -100,6 +101,7 @@ class SetupFlow(
         when (name) {
             "welcome" -> welcome(); "jellyfin" -> jellyfinServer(); "signin" -> jellyfinSignIn(); "seerr" -> seerrStep()
             "arr" -> arrStep(); "client" -> clientStep(); "region" -> regionStep(); "advanced" -> advancedStep(); "order" -> libraryOrderStep()
+            "integrations" -> integrationsStep()
             else -> overview()
         }
     }
@@ -346,6 +348,31 @@ class SetupFlow(
         p.secondary("Cancel") { overview() }
     }
 
+    private fun integrationsStep() {
+        val p = page("SETTINGS", "Integrations", "Optional services Cinema can add to the menu and to title pages. Switch off any you do not use.")
+        backTo = ::overview
+        Integration.entries.forEach { integration ->
+            val row = p.row(integration.label, integrationDetail(integration))
+            row.button(toggleLabel(integration)) {
+                settings.setOn(integration, !settings.isOn(integration)); changed = true
+                row.detail.text = integrationDetail(integration)
+                row.lastButton?.label?.text = toggleLabel(integration)
+            }
+        }
+        p.primary("Done", R.drawable.ic_cin_check) { overview() }
+    }
+
+    private fun toggleLabel(integration: Integration) = if (settings.isOn(integration)) "Turn off" else "Turn on"
+
+    private fun integrationDetail(integration: Integration): String {
+        if (!settings.isOn(integration)) return "Off · ${integration.summary}"
+        return when (integration) {
+            Integration.LETTERBOXD -> LetterboxdRepository.followingCount(activity).let { n ->
+                if (n == 0) "On · follow people from the Letterboxd page" else "On · following $n, managed from the Letterboxd page"
+            }
+        }
+    }
+
     // --- Settings overview ---------------------------------------------------------------------------
 
     private fun overview() {
@@ -371,8 +398,8 @@ class SetupFlow(
 
         p.row("Library order", settings.libraryOrder.label).button("Change") { libraryOrderStep() }
 
-        val following = LetterboxdRepository.followingCount(activity)
-        p.row("Letterboxd", if (following == 0) "Not following anyone. Follow people from the Letterboxd page." else "Following $following · manage them from the Letterboxd page")
+        val on = Integration.entries.filter { settings.isOn(it) }.map { it.label }
+        p.row("Integrations", if (on.isEmpty()) "None switched on" else on.joinToString(", ") + " on").button("Change") { integrationsStep() }
 
         val extras = listOfNotNull(settings.requestHelperUrl?.let { "request helper" }, settings.streamServiceUrl?.let { "stream service" })
         p.row("Helper services", if (extras.isEmpty()) "None" else extras.joinToString(" and ").replaceFirstChar { it.uppercase() })
@@ -499,11 +526,16 @@ class SetupFlow(
         }
 
         inner class Row(private val line: LinearLayout, val detail: TextView) {
+            /** The button added last, so a toggle can relabel itself. */
+            var lastButton: CinemaButton? = null
+                private set
+
             fun button(label: String, accent: Boolean = false, danger: Boolean = false, onClick: () -> Unit): Row {
                 val kind = when { danger -> CinemaButton.Kind.DANGER; accent -> CinemaButton.Kind.TERRA; else -> CinemaButton.Kind.GLASS }
                 val b = CinemaButton(activity, kind, label, null, small = true).apply { setOnClickListener { onClick() } }
                 line.addView(b, LinearLayout.LayoutParams(-2, px(64)).apply { marginStart = px(16) })
                 focusables += b
+                lastButton = b
                 return this
             }
         }
